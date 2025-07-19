@@ -1,16 +1,16 @@
-# scn-js
+# scn-ts: The SCN Generator Engine
 
-[![NPM Version](https://img.shields.io/npm/v/scn-js.svg)](https://www.npmjs.com/package/scn-js)
+[![NPM Version](https://img.shields.io/npm/v/scn-ts.svg)](https://www.npmjs.com/package/scn-ts)
 [![Spec Version](https://img.shields.io/badge/SCN%20Spec-v1.0-blue.svg)](https://github.com/scn-lang/scn)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/scn-lang/scn-js/ci.yml?branch=main)](https://github.com/scn-lang/scn-js/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/scn-lang/scn-ts/ci.yml?branch=main)](https://github.com/scn-lang/scn-ts/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Discussions](https://img.shields.io/badge/Discussions-Join_Here-green.svg)](https://github.com/scn-lang/scn/discussions)
 
-**`scn-js` is the official generator for Symbolic Context Notation (SCN) from JavaScript and TypeScript codebases.**
+**`scn-ts` is the official reference implementation and generator engine for Symbolic Context Notation (SCN).**
 
-It's a command-line tool and programmatic library that analyzes your project's structure—classes, functions, types, interfaces, and their relationships across files—and outputs a hyper-efficient SCN map. This map is designed to be fed directly into Large Language Models (LLMs), giving them unparalleled architectural context at a fraction of the token cost of raw source code.
+This is a command-line tool and a powerful programmatic library designed to create SCN context maps from any codebase. While its core is built in TypeScript and it has first-class support for **JS/TS**, its architecture is designed to be **language-agnostic** through a plugin system.
 
-This tool is your bridge over the "Context Chasm," enabling smarter, faster, and more accurate AI-assisted development.
+`scn-ts` analyzes your project's structure—classes, functions, types, and their relationships—and outputs a hyper-efficient SCN map. This map gives Large Language Models (LLMs) unparalleled architectural context at a fraction of the token cost of raw source code, bridging the "Context Chasm" and enabling smarter, faster, and more accurate AI-assisted development.
 
 ## Table of Contents
 
@@ -18,17 +18,15 @@ This tool is your bridge over the "Context Chasm," enabling smarter, faster, and
 2.  [**Features**](#2-features)
 3.  [**Installation**](#3-installation)
 4.  [**Quick Start: CLI Usage**](#4-quick-start-cli-usage)
-5.  [**How It Works**](#5-how-it-works)
-6.  [**Detailed Examples**](#6-detailed-examples)
-    *   [Example 1: TypeScript Class](#example-1-typescript-class)
-    *   [Example 2: React Component (TSX)](#example-2-react-component-tsx)
-    *   [Example 3: Multi-File Dependency Graph](#example-3-multi-file-dependency-graph)
+5.  [**How It Works: A Pluggable Pipeline**](#5-how-it-works-a-pluggable-pipeline)
+6.  [**Programmatic API: High & Low Level**](#6-programmatic-api-high--low-level)
+    *   [High-Level API (Simple)](#high-level-api-simple)
+    *   [Low-Level API (Advanced)](#low-level-api-advanced)
 7.  [**Configuration (`scn.config.js`)**](#7-configuration-scnconfigjs)
 8.  [**Command-Line Interface (CLI)**](#8-command-line-interface-cli)
-9.  [**Programmatic API**](#9-programmatic-api)
-10. [**Advanced: JSDoc Tag Support**](#10-advanced-jsdoc-tag-support)
-11. [**Roadmap & Contributing**](#11-roadmap--contributing)
-12. [**License**](#12-license)
+9.  [**Roadmap & The Multi-Language Vision**](#9-roadmap--the-multi-language-vision)
+10. [**Contributing**](#10-contributing)
+11. [**License**](#11-license)
 
 ---
 
@@ -47,291 +45,193 @@ For the complete specification, please see the [**Official SCN Spec v1.0**](http
 
 ## 2. Features
 
-*   **Comprehensive Language Support:** First-class support for **TypeScript** and modern **JavaScript** (ESM, CJS).
-*   **Framework Aware:** Natively understands **JSX/TSX** syntax for React, Preact, Solid, etc.
-*   **Project-Wide Analysis:** Scans your entire project to build a complete dependency graph, mapping imports/exports (`->`) and call sites (`<-`).
-*   **Rich Type Parsing:** Accurately represents `class`, `interface`, `type`, `enum`, and complex generic types.
-*   **Flexible Usage:** Can be used as a powerful **CLI tool** for one-off generation or integrated into your toolchain via its **Programmatic API**.
-*   **Highly Configurable:** Use a `scn.config.js` file to define include/exclude patterns, project paths, and more.
+*   **Multi-Language by Design:** A core engine with a plugin architecture to support dozens of languages (JS, TS, Python, Go, Rust, and more).
+*   **Deep JS/TS Support:** The default plugin uses the TypeScript Compiler API for best-in-class analysis of JavaScript and TypeScript projects, including JSX/TSX.
+*   **Powerful Programmatic APIs:** Use a simple high-level API for quick generation, or a low-level API for deep integration and custom tooling.
+*   **Project-Wide Graph Analysis:** Scans your entire project to build a complete dependency graph, mapping imports/exports (`->`) and call sites (`<-`).
+*   **Highly Configurable:** Use a `scn.config.js` file to define include/exclude patterns, plugins, and output settings.
 *   **Watch Mode:** Automatically re-generate the SCN map on file changes for a seamless development experience.
 
 ## 3. Installation
 
-`scn-js` is a development dependency, as it's part of your development and build process.
+Install `scn-ts` as a development dependency.
 
 ```bash
 # Using Bun
-bun i -D scn-js
+bun i -D scn-ts
 
 # Using NPM
-npm install --save-dev scn-js
+npm install --save-dev scn-ts
 
 # Using Yarn
-yarn add --dev scn-js
+yarn add --dev scn-ts
 ```
 
 ## 4. Quick Start: CLI Usage
 
-The easiest way to get started is to run `scn-js` from the command line in the root of your project.
+The easiest way to get started is to run `scn-ts` from your project's root directory.
 
-1.  **Navigate to your project directory.**
-2.  **Run the generator:**
-
-    ```bash
-    npx scn-js "src/**/*.{ts,tsx,js,jsx}" --output context.scn
-    ```
+```bash
+npx scn-ts "src/**/*.{ts,tsx}" --output context.scn
+```
 
 This command will:
-*   Find all `.ts`, `.tsx`, `.js`, and `.jsx` files inside your `src/` directory.
-*   Analyze their structure and dependencies.
-*   Generate a single `context.scn` file in your project root containing the complete SCN map.
+*   Find all `.ts` and `.tsx` files inside your `src/` directory.
+*   Analyze them using the built-in TypeScript/JavaScript parser.
+*   Generate a single `context.scn` file containing the complete SCN map.
 
-You can now copy the contents of `context.scn` and paste it at the beginning of your LLM prompt to provide massive, high-quality context.
+## 5. How It Works: A Pluggable Pipeline
 
-## 5. How It Works
+`scn-ts` processes code in a four-stage pipeline. This design allows new languages to be "plugged in" by providing a custom parser.
 
-`scn-js` is not a simple regex-based tool. It performs a deep, semantic analysis of your code using the same technology that powers your IDE and the TypeScript compiler.
+1.  **Glob & Load:** The tool finds all files matching the include/exclude patterns.
+2.  **Parse (Pluggable):** Each file's content is passed to the appropriate language parser. The parser's job is to convert the source code into a standardized **SCN Abstract Syntax Tree (AST)**.
+    *   *Default:* The built-in parser uses the **TypeScript Compiler API** for `.ts`, `.tsx`, `.js`, and `.jsx` files.
+    *   *Future:* A Python plugin would use a Python parser (e.g., Tree-sitter) to produce the same SCN AST format.
+3.  **Index & Resolve:** The engine takes the SCN ASTs from all files and builds a single, project-wide graph. It indexes all entities (classes, functions, etc.) and resolves the `->` (dependency) and `<-` (caller) relationships between them.
+4.  **Serialize:** The final in-memory graph is serialized into the ultra-compact SCN text format.
 
-1.  **Parsing:** The tool leverages the **TypeScript Compiler API** to parse every matched file into an Abstract Syntax Tree (AST). This provides a rich, structured understanding of your code, including types.
-2.  **Indexing Pass (First Pass):** It traverses the AST of every file to identify and index all major entities: classes (`◇`), functions (`~`), interfaces (`{}`), type aliases (`=:`), enums (`☰`), and top-level variables (`@`). Each entity is assigned a unique, stable ID like `(file_id.entity_id)`.
-3.  **Dependency Resolution (Second Pass):** The tool makes a second pass to resolve relationships. It analyzes `import`/`export` statements, function calls, and `new` expressions to build the dependency graph, creating the crucial `->` (dependency) and `<-` (caller) links between entities.
-4.  **Serialization:** Finally, this in-memory graph of your project is serialized into the ultra-compact SCN text format, adhering strictly to the [SCN Specification](https://github.com/scn-lang/scn).
+## 6. Programmatic API: High & Low Level
 
-This two-pass approach ensures that all relationships can be resolved, even with complex circular dependencies between files.
+`scn-ts` exposes a flexible API for programmatic use.
 
-## 6. Detailed Examples
+### High-Level API (Simple)
 
-### Example 1: TypeScript Class
+For most use cases, the `generateScn` function is all you need. It handles the entire pipeline in one call.
 
-**Source Code (`src/services/auth.ts`, 86 tokens):**
 ```typescript
-import { Database } from '../db';
-import { User } from '../models/user';
+import { generateScn } from 'scn-ts';
+import fs from 'fs/promises';
 
-export class AuthService {
-  private db: Database;
+async function buildContext() {
+  const scnOutput = await generateScn({
+    // Options are identical to the config file
+    include: ['src/**/*.{ts,tsx}'],
+    exclude: ['**/*.spec.ts'],
+    // plugins: [pythonParser()] // Future plugin usage
+  });
 
-  constructor(db: Database) {
-    this.db = db;
-  }
-
-  /**
-   * Logs a user in.
-   * @throws {Error} if login fails.
-   */
-  public async login(email: string, pass: string): Promise<User> {
-    // ... complex implementation details ...
-    if (!email) throw new Error("Email required");
-    return {} as User;
-  }
-}
-```
-
-**Generated SCN (`context.scn`, 24 tokens - 72% reduction):**
-```scn
-§ (1) src/services/auth.ts
-  -> (db.ts), (models/user.ts)
-  ◇ (1.1) AuthService
-    - @ db: #(Database)
-    + ~ login(email: #, pass: #): #(User) ...!
-```
-**Analysis:** The SCN captures the public API (`+ ~ login`), its async nature (`...`), its potential to throw an error (`!`), its private field (`- @ db`), and its file-level dependencies, all while discarding the noisy implementation logic.
-
-### Example 2: React Component (TSX)
-
-**Source Code (`src/components/ProfileCard.tsx`, 68 tokens):**
-```tsx
-import './ProfileCard.css';
-
-interface ProfileCardProps {
-  userId: string;
-  onFollow: (id: string) => void;
+  await fs.writeFile('context.scn', scnOutput, 'utf-8');
+  console.log('SCN map generated!');
 }
 
-export const ProfileCard = ({ userId, onFollow }: ProfileCardProps) => {
-  return (
-    <div className="profile-card" onClick={() => onFollow(userId)}>
-      <img className="profile-avatar" />
-      <p>User ID: {userId}</p>
-    </div>
-  );
-};
+buildContext();
 ```
 
-**Generated SCN (`context.scn`, 31 tokens - 54% reduction):**
-```scn
-§ (2) src/components/ProfileCard.tsx
-  -> (ProfileCard.css)
-  { (2.1) ProfileCardProps
-    @ userId: #(string)
-    @ onFollow: #(function)
-  }
-  ◇ (2.2) ProfileCard { props:#(2.1) }
-    ⛶ (2.3) div [ class:.profile-card ]
-      ⛶ (2.4) img [ class:.profile-avatar ]
-      ⛶ (2.5) p
-```
-**Analysis:** `scn-js` understands JSX. It maps the props interface (`{}`), the component itself (`◇`), and the HTML-like element tree (`⛶`). It even notes the `className` attributes, which are crucial clues for an LLM when asked to modify styling.
+### Low-Level API (Advanced)
 
-### Example 3: Multi-File Dependency Graph
+For building custom tools, you can access each stage of the pipeline. This allows you to inspect or modify the intermediate data structures.
 
-**`src/utils/string.ts`:**
 ```typescript
-export const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
-```
+import {
+  loadFiles,
+  parse,
+  buildGraph,
+  serializeGraph
+} from 'scn-ts';
+import fs from 'fs/promises';
 
-**`src/user/service.ts`:**
-```typescript
-import { capitalize } from '../utils/string';
+async function customBuildContext() {
+  // 1. Load file contents
+  const files = await loadFiles({ include: ['src/**/*.ts'] });
 
-export function formatUserName(name: string) {
-  return capitalize(name);
+  // 2. Parse files into SCN ASTs
+  // The 'parse' function automatically uses the correct plugin
+  const scnAsts = await parse(files);
+
+  // --- You can now inspect or transform the ASTs ---
+  console.log(`Parsed ${scnAsts.length} files.`);
+
+  // 3. Build the final, resolved graph
+  const scnGraph = buildGraph(scnAsts);
+
+  // --- You could now perform your own analysis on the graph ---
+  console.log(`Graph has ${scnGraph.entities.length} total entities.`);
+
+  // 4. Serialize the graph to the SCN format
+  const scnOutput = serializeGraph(scnGraph);
+
+  await fs.writeFile('context.scn', scnOutput, 'utf-8');
+  console.log('Custom SCN build complete!');
 }
-```
 
-**Generated SCN (`context.scn`, 26 tokens):**
-```scn
-§ (3) src/utils/string.ts
-  <- (4.1)
-  + ~ (3.1) capitalize(s: #): #(string)
-
-§ (4) src/user/service.ts
-  -> (3.1)
-  + ~ (4.1) formatUserName(name: #)
-    -> (3.1)
+customBuildContext();
 ```
-**Analysis:** This demonstrates the core power of SCN. The `<- (4.1)` link on `capitalize` tells the LLM that `formatUserName` uses it. The `-> (3.1)` link on `formatUserName` explicitly shows the dependency. The LLM can now trace logic across the entire codebase without needing to see the source of both files simultaneously.
 
 ## 7. Configuration (`scn.config.js`)
 
-For more control, you can create a `scn.config.js` file in your project root.
+For project-wide settings, create a `scn.config.js` file in your root.
 
 ```javascript
 // scn.config.js
 module.exports = {
   /**
-   * Path to your tsconfig.json file.
-   * This is highly recommended for TypeScript projects to ensure
-   * correct type analysis and path alias resolution.
+   * Path to tsconfig.json for the default JS/TS parser.
+   * Highly recommended for correct type analysis and path aliases.
    */
   project: './tsconfig.json',
 
-  /**
-   * An array of glob patterns to include.
-   * @default ["**/*.{js,ts,jsx,tsx}"]
-   */
+  /** Glob patterns to include. */
   include: [
     'src/**/*.{ts,tsx}',
-    'lib/**/*.ts',
+    'app/**/*.py', // Example for a future python plugin
   ],
 
-  /**
-   * An array of glob patterns to exclude.
-   * node_modules and output file are always excluded.
-   * @default ["**/*.d.ts", "**/*.test.ts", "**/*.spec.ts"]
-   */
+  /** Glob patterns to exclude. */
   exclude: [
-    'src/generated/**/*',
-    '**/*.stories.tsx',
+    '**/*.d.ts',
+    '**/*.test.ts',
+    'dist/**/*',
   ],
 
-  /**
-   * The path to the output SCN file.
-   * @default "context.scn"
-   */
-  output: 'ai-context.scn',
+  /** Path for the final output file. */
+  output: 'context.scn',
+
+  /** (Future) An array of language parser plugins. */
+  // plugins: [
+  //   require('scn-parser-python')()
+  // ],
 };
 ```
 
-`scn-js` will automatically detect and use this configuration file if it exists.
-
 ## 8. Command-Line Interface (CLI)
 
-You can override any configuration setting with command-line flags.
+Override any config setting with command-line flags.
 
 ```
-npx scn-js [globs...] [options]
+npx scn-ts [globs...] [options]
 ```
 
-**Arguments:**
-*   `[globs...]`: (Optional) Space-separated glob patterns. If provided, they override the `include` setting in the config file.
+| Flag              | Alias | Description                                        |
+| ----------------- | ----- | -------------------------------------------------- |
+| `--output <path>` | `-o`  | Specify the output file path.                      |
+| `--project <path>`| `-p`  | Path to `tsconfig.json` for TS/JS projects.        |
+| `--watch`         | `-w`  | Watch files and re-generate on changes.            |
+| `--config <path>` | `-c`  | Path to a custom config file.                      |
+| `--version`       | `-v`  | Display the version number.                        |
+| `--help`          | `-h`  | Display the help screen.                           |
 
-**Options:**
-| Flag                  | Alias | Description                                                        |
-| --------------------- | ----- | ------------------------------------------------------------------ |
-| `--output <path>`     | `-o`  | Specify the output file path.                                      |
-| `--project <path>`    | `-p`  | Path to the `tsconfig.json`. Essential for TS projects.            |
-| `--watch`             | `-w`  | Watch files for changes and re-generate SCN automatically.         |
-| `--config <path>`     | `-c`  | Path to a custom config file.                                      |
-| `--version`           | `-v`  | Display the version number.                                        |
-| `--help`              | `-h`  | Display the help screen.                                           |
+## 9. Roadmap & The Multi-Language Vision
 
-## 9. Programmatic API
+The SCN standard and `scn-ts` are actively evolving. Our primary goal is to create a truly universal SCN generator.
 
-For advanced integrations, you can use `scn-js` as a library.
+*   [ ] **Formalize the Plugin API:** Define and document the official interface for creating custom language parsers.
+*   [ ] **Release Official Language Plugins:**
+    *   [ ] `scn-parser-python`
+    *   [ ] `scn-parser-go`
+    *   [ ] `scn-parser-rust`
+*   [ ] **Enhance Caller Resolution (`<-`):** Deepen analysis to trace function calls inside other function bodies for a more complete graph.
+*   [ ] **Performance Optimizations:** Ensure `scn-ts` can handle codebases with millions of lines of code across multiple languages.
+*   [ ] **Configuration File Support:** Add plugins for parsing `.json`, `.yaml`, and `.xml` files into SCN.
 
-```typescript
-import { generateScn } from 'scn-js';
-import path from 'path';
+## 10. Contributing
 
-async function buildAiContext() {
-  try {
-    const scnOutput = await generateScn({
-      // Options are identical to the config file
-      project: path.resolve(__dirname, 'tsconfig.json'),
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['**/*.spec.ts'],
-    });
+We welcome community contributions, especially for new language support!
 
-    console.log('Generated SCN Map:');
-    console.log(scnOutput);
-    
-    // Or write it to a file
-    // await fs.promises.writeFile('context.scn', scnOutput, 'utf-8');
-
-  } catch (error) {
-    console.error('Failed to generate SCN:', error);
-  }
-}
-
-buildAiContext();
-```
-
-## 10. Advanced: JSDoc Tag Support
-
-To enhance the SCN output, `scn-js` recognizes specific JSDoc tags to add function qualifiers:
-
-*   **`!` (Throws):** Add `@throws` to your function's JSDoc to indicate it can throw an error.
-
-    ```typescript
-    /** @throws {AuthError} If the user is not found. */
-    function findUser() { /* ... */ }
-    // SCN: ~ findUser() ! 
-    ```
-
-*   **`o` (Pure):** Add `@pure` to your function's JSDoc to indicate it has no side effects. This is a powerful hint for an LLM.
-
-    ```typescript
-    /** @pure */
-    function calculateTotal(items) { /* ... */ }
-    // SCN: ~ calculateTotal(items: #) o
-    ```
-
-## 11. Roadmap & Contributing
-
-The SCN standard and the `scn-js` tool are actively evolving. We welcome community contributions.
-
-**`scn-js` Roadmap:**
-*   [ ] Deeper analysis for CSS Modules and Styled Components to create more explicit style links.
-*   [ ] Enhanced caller detection (`<-`) to trace function usage within other function bodies.
-*   [ ] Performance optimizations for extremely large codebases (>1M LOC).
-*   [ ] Plugin architecture to allow for custom language extensions (e.g., Vue, Svelte).
-
-**How to Contribute:**
 1.  **Discussions:** Have an idea or a question? Start a conversation on [GitHub Discussions](https://github.com/scn-lang/scn/discussions).
-2.  **Issues:** Find a bug or want to request a feature? [Open an issue](https://github.com/scn-lang/scn-js/issues).
-3.  **Pull Requests:** Fork the repository, make your changes, and submit a PR. Please ensure your code is formatted and passes existing tests.
+2.  **Language Plugins:** If you have expertise in a language's AST or tooling (e.g., Tree-sitter, ANTLR), we would love your help in creating a new parser plugin. Check the issues for our Plugin API proposal.
+3.  **Issues & PRs:** Find a bug or want to improve the core engine? [Open an issue](https://github.com/scn-lang/scn-ts/issues) or submit a Pull Request.
 
-## 12. License
+## 11. License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License**.
