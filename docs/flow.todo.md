@@ -1,4 +1,13 @@
 
+===
+
+you are on scn-ts project
+
+now develop the program based on scn-ts README.md using repograph lib.
+
+additional context for you
+1. repograph readme.md
+2. docs/scn-ts-2.report.md
 
 ===
 

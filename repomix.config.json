@@ -22,16 +22,19 @@
       "includeDiffs": false
     }
   },
-  "include": [],
+  "include": [
+    "package.json",
+    "tsconfig.json",
+    "README.md",
+    "docs/scn.readme.md",
+    "docs/scn-ts-2.report.md"
+
+  ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
     "customPatterns": [
-      ".gitignore",
-      ".repomixignore",
-      "bun.lock",
-      "repomix.config.json",
-      "docs"
+
     ]
   },
   "security": {

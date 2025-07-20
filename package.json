@@ -1,5 +1,5 @@
 {
-  "name": "scnjs",
+  "name": "scn-ts",
   "module": "index.ts",
   "type": "module",
   "private": true,
