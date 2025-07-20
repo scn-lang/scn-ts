@@ -3,7 +3,14 @@
 
 you are on scn-ts project
 
-now develop the program based on scn-ts README.md using repograph lib.
+now develop the scn-ts based on scn-ts README.md S repograph npm lib.
+
+make sure to follow below rules;
+1. use HOF
+2. no oop, no classes.
+3. immutable
+4. no type of any, unknown and as casting
+5. types should import from repograph npm lib
 
 additional context for you
 1. repograph readme.md

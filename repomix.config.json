@@ -28,7 +28,6 @@
     "README.md",
     "docs/scn.readme.md",
     "docs/scn-ts-2.report.md"
-
   ],
   "ignore": {
     "useGitignore": true,
