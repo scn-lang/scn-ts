@@ -17,17 +17,22 @@
     "showLineNumbers": false,
     "copyToClipboard": true,
     "git": {
-      "sortByChanges": true,
+      "sortByChanges": false,
       "sortByChangesMaxCommits": 100,
       "includeDiffs": false
     }
   },
   "include": [
-    "package.json",
-    "tsconfig.json",
-    "README.md",
-    "docs/scn.readme.md",
-    "docs/scn-ts-2.report.md"
+    // "package.json",
+    // "tsconfig.json",
+    // "src",
+
+    // "repograph/package.json",
+    // "repograph/tsconfig.json",
+    // "repograph/tsconfig.build.json",
+    // "repograph/src"
+    "repograph/test/e2e/cli.test.ts",
+    "repograph/test/unit/high-level.test.ts"
   ],
   "ignore": {
     "useGitignore": true,

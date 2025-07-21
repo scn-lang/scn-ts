@@ -1,653 +1,1044 @@
 # Directory Structure
 ```
-docs/
-  scn-ts-2.report.md
-  scn.readme.md
-package.json
-README.md
-tsconfig.json
+repograph/
+  test/
+    e2e/
+      cli.test.ts
+    unit/
+      high-level.test.ts
 ```
 
 # Files
 
-## File: docs/scn-ts-2.report.md
-````markdown
-## Analysis Report: `repograph` and `scn-ts` Integration
-
-### Executive Summary
-
-`repograph` proved to be an excellent engine for `scn-ts`. Its core architecture, particularly the composable pipeline and Tree-sitter-based analysis, provided the vast majority of the necessary foundation for this integration.
-
-The work did not require fundamental re-architecture. Instead, it involved **targeted enhancements to enrich the `CodeGraph` data model**. By adding more semantic detail to `CodeNode` and `CodeEdge` types, `repograph` became a more powerful general-purpose analysis tool, while incidentally providing `scn-ts` with a complete, high-fidelity data source to construct its map.
-
-### Core Design Philosophy: Separation of Concerns
-
-The integration was guided by a clean separation of responsibilities, which has now been successfully implemented:
-
-*   **`repograph`'s Role:** To discover, parse, and model a codebase into a language-agnostic graph (`RankedCodeGraph`). It has no knowledge of SCN-specific syntax. Its product is a rich, structured data object.
-*   **`scn-ts`'s Role:** To consume the `RankedCodeGraph` from `repograph`. Its sole job is to act as a "rendering target," transforming and serializing this structured data into the SCN text format.
-
-### I. `repograph` as the Analysis Engine
-
-`repograph`'s existing strengths were leveraged, and its data model was enhanced to meet the full requirements of the SCN specification.
-
-#### Leveraged Foundation
-
-The initial `repograph` implementation provided a robust starting point:
-
-1.  **Composable Pipeline:** The `createMapGenerator` function was the ideal entry point, allowing `scn-ts` to reuse the `discover`, `analyze`, and `rank` stages while providing a custom renderer.
-2.  **Rich `CodeNode` Model:** The existing `CodeNode` already captured visibility, asynchronicity, entity types (class, function), parameters, and return types.
-3.  **Relationship Modeling:** The `CodeEdge` types (`'imports'`, `'calls'`, `'inherits'`) provided the exact information needed to generate dependency arrows.
-
-#### Implemented Semantic Upgrades
-
-To fully support SCN, the `repograph` analyzer and data model were enhanced as follows:
-
-**1. Deeper Code Semantics in `CodeNode`:**
-The `CodeNode` model was enriched to capture finer-grained details about code behavior:
-*   `canThrow: boolean`: Added to indicate if a function's body contains a `throw` statement, mapping to SCN's `!` symbol.
-*   `isPure: boolean`: Added to identify pure functions via heuristics (e.g., absence of external calls or state mutation), mapping to SCN's `o` symbol.
-*   `isStatic: boolean`: This field's capture was reviewed and solidified across all supported languages.
-
-**2. First-Class UI Language Support:**
-Analysis capabilities were extended beyond procedural/OO languages to include UI structure and styling:
-*   **New `CodeNodeType`s:** The enum was expanded with `'html_element'` and `'css_rule'`.
-*   **UI-Specific Fields:** New `CodeNode` attributes like `htmlTag`, `cssSelector`, and `cssIntents` were added to hold structural and styling information.
-*   **Enhanced Analyzer:** The analyzer was updated to parse HTML/JSX element hierarchies and infer the intent of CSS rules (`layout`, `typography`, etc.).
-
-**3. Solidified API Contract:**
-The `RankedCodeGraph` data structure was formalized and documented as a stable, public API. This ensures that `scn-ts` and other downstream tools have a reliable and versioned data contract to depend on.
-
-### II. `scn-ts` as the Rendering Layer
-
-With a complete and semantically rich `CodeGraph` available from `repograph`, the implementation of `scn-ts` became simple and focused. Its responsibilities are:
-
-1.  **Invoke** `repograph`'s processing pipeline.
-2.  **Receive** the final `RankedCodeGraph` data object.
-3.  **Perform** a direct, stateless translation of the graph's nodes and edges into SCN text format, mapping data attributes like `visibility` or `canThrow` to their corresponding SCN symbols.
-
-### Conclusion
-
-The integration was a success. By enhancing `repograph`'s generic analysis capabilities, it became a more powerful standalone tool while simultaneously providing the perfect data source for `scn-ts`. This project validates the "smart engine, simple renderer" architectural approach and the critical value of maintaining a clean separation of concerns.
-````
-
-## File: docs/scn.readme.md
-````markdown
-# Symbolic Context Notation (◮ SCN) Specification v1.0
-
-**Symbolic Context Notation (SCN) is a hyper-efficient, language-agnostic format for representing the structural surface, API, and inter-file relationships of a software codebase.** It acts as a compressed blueprint of a project, designed to provide Large Language Models (LLMs) with unparalleled context at a fraction of the token cost of raw source code.
-
-This document is the official specification. It's intended for developers, tool-builders, and anyone interested in the future of AI-assisted software development.
-
----
-
-## 1. The Problem: The "Context Chasm"
-
-Large Language Models are powerful, but they operate with a critical handicap: they lack true understanding of a project's architecture. When we paste code into a prompt, we face a trade-off:
-
-*   **Provide Too Little Code:** The LLM hallucinates, inventing functions, misusing APIs, and failing to see connections between files.
-*   **Provide Too Much Code:** We hit token limits, incur high costs, and the LLM gets lost in irrelevant implementation details, leading to slower, lower-quality responses.
-
-This is the **Context Chasm**. SCN is the bridge.
-
-## 2. The Solution: SCN Philosophy
-
-SCN bridges the chasm by adhering to four principles:
-
-1.  **Extreme Token Efficiency:** Every symbol is chosen to be a single ASCII character where possible, maximizing the information-to-token ratio.
-2.  **Language Agnosticism:** The system abstracts concepts from OOP, FP, and Declarative paradigms into a unified format.
-3.  **Structural Representation:** SCN maps the *graph* of a project—which entity uses which, and which is used by which—revealing the true architecture.
-4.  **Human Scannability:** While machine-optimized, the format is surprisingly readable, allowing developers to quickly grasp a project's structure.
-
----
-
-## 3. Comparison with Other Representations (AST, CST)
-
-To understand SCN's unique value, it's essential to compare it with traditional code representations like Concrete Syntax Trees (CSTs) and Abstract Syntax Trees (ASTs).
-
-| Feature               | **Concrete Syntax Tree (CST)**                               | **Abstract Syntax Tree (AST)**                               | **Symbolic Context Notation (SCN)**                          |
-| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| **Purpose**           | Perfectly represent the source text, including all syntax.   | Represent the abstract semantic structure of the code.       | **Represent the architectural surface & relationships.**     |
-| **Detail Level**      | **Hyper-Detailed.** Includes whitespace, comments, parentheses. | **Detailed.** Abstracts away syntax, focuses on structure.   | **Ultra-Concise.** Abstracts away implementation logic.      |
-| **Scope**             | Single file.                                                 | Single file.                                                 | **Project-wide.** Natively represents inter-file dependencies. |
-| **Language Agnostic?**| No. Highly specific to a language's grammar.                 | Mostly no. Structure is language-specific.                   | **Yes.** Symbolic system unifies concepts across languages.  |
-| **Token Cost**        | Extremely High.                                              | Very High.                                                   | **Extremely Low.** Designed for maximum token efficiency.    |
-| **Example Node**      | `(`, `function`, `myFunc`, `)`, `{`, `}`                     | `FunctionDeclaration(name: "myFunc", body: BlockStatement)`  | `~ (1.1) myFunc()`                                           |
-| **Primary Use Case**  | Parsers, formatters (like Prettier).                         | Compilers, linters, transpilers (like Babel).                | **LLM context, architecture visualization, dependency analysis.** |
-
-**Conclusion:** SCN is not a replacement for ASTs/CSTs. It is a **higher-level abstraction built on top of them**. A tool would first parse source code into an AST and then traverse that AST to generate the even more abstract and relationship-focused SCN map.
-
----
-
-## 4. Before & After: The Power of SCN
-
-The best way to understand SCN is to see it in action.
-
-### Example 1: A Simple JavaScript Class
-
-#### **Before SCN: Raw Source Code (105 tokens)**
-```javascript
-// services/auth.js
-import { findUserByEmail, hashPassword } from './utils';
-
-/**
- * Manages user authentication.
- */
-export class AuthService {
-  constructor(database) {
-    this.db = database;
-  }
-
-  // Tries to log a user in
-  async login(email, password) {
-    const user = await findUserByEmail(this.db, email);
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const hash = hashPassword(password);
-    if (user.passwordHash !== hash) {
-      throw new Error('Invalid password');
-    }
-
-    return user;
-  }
-}
-```
-
-#### **After SCN: The Context Map (21 tokens)**
-```scn
-§ (1) services/auth.js
-  -> (utils.js)       // File-level dependency
-  ◇ (1.1) AuthService
-    + @ db: #(Database)
-    + ~ login(email: #, pass: #): #(User) ...!
-```
-**Result:** A **79% reduction** in tokens. We've thrown away implementation details (`if` statements, internal calls) but preserved the essential API surface: the `AuthService` class has a public `login` method that is `async`, can `throw`, and returns a `User`.
-
-### Example 2: A React Component with CSS
-
-#### **Before SCN: Raw Source Code (HTML, CSS - 131 tokens)**
-```jsx
-// Button.jsx
-import './Button.css';
-
-export function Button({ label, onClick }) {
-  return (
-    <button className="btn btn-primary" onClick={onClick}>
-      {label}
-    </button>
-  );
-}
-
-// Button.css
-.btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-weight: bold;
-}
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-  border: none;
-}
-```
-
-#### **After SCN: The Context Map (38 tokens)**
-```scn
-§ (2) Button.jsx
-  -> (3.0)
-  ◇ (2.1) Button
-    { props: { label:#, onClick:# } }
-    ⛶ (2.2) button [ class:.btn .btn-primary ]
-      -> (3.1), (3.2)
-
-§ (3) Button.css
-  <- (2.0)
-  ¶ (3.1) .btn { 📐 ✍ }
-  ¶ (3.2) .btn-primary { 💧 }
-```
-**Result:** A **71% reduction**. The SCN clearly shows that the `Button` component `(2.1)` has a `button` element `(2.2)` which is styled by two separate CSS rules `(3.1, 3.2)`. The LLM now understands the structural link between the JSX and the CSS without seeing a single pixel value.
-
-### Example 3: A Multi-File Python Application
-
-#### **Before SCN: Raw Source Code (118 tokens)**
-```python
-# services.py
-from models import User
-from database import db_session
-
-def get_user_profile(user_id: int) -> User:
-    user = db_session.query(User).get(user_id)
-    return user
-
-# main.py
-from services import get_user_profile
-
-def main():
-    user = get_user_profile(1)
-    if user:
-        print(f"Hello, {user.name}")
-
-if __name__ == "__main__":
-    main()
-```
-#### **After SCN: The Context Map (31 tokens)**
-```scn
-§ (4) models.py
-  <- (5.0)
-  ◇ (4.1) User
-    + @ id: #(int)
-    + @ name: #(str)
-
-§ (5) services.py
-  -> (4.1), (database.py)
-  <- (6.1)
-  + ~ (5.1) get_user_profile(user_id: #): #(4.1)
-
-§ (6) main.py
-  -> (5.1)
-  ~ (6.1) main()
-    -> (5.1)
-```
-**Result:** A **74% reduction**. The SCN creates a complete dependency graph. It shows that `main.py` calls a function in `services.py`, which in turn depends on the `User` model from `models.py`. An LLM can now reason about the entire application flow.
-
----
-
-## 5. The SCN Specification v1.0
-
-### Core Structure: Files & Entity IDs
-An SCN document is a plain text file representing a project's context.
-
-*   **File Declaration (`§`):** Each file is introduced with a `§` symbol, a unique integer ID, and the file path.
-    `§ (1) path/to/file.js`
-*   **Entity Declaration:** Every significant entity (class, function, etc.) gets a compound ID: `(file_id.entity_id)`.
-    `◇ (1.1) MyClass`
-*   **Dependency Linking (`->`/`<-`):** Relationships are defined by pointing an entity's `->` (dependency) or `<-` (caller) to another entity's unique ID.
-    `~ (1.2) myMethod() -> (2.1)`
-
-### Master Symbol Legend
-
-#### General & Structural
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `§` | **File Path** | Declares a new source file context. |
-| `->` | **Dependency** | Points to an entity ID that this entity *uses*. |
-| `<-` | **Caller** | Points to an entity ID that *uses* this entity. |
-
-#### Code Entities (JS, Python, Go, C#, etc.)
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `◇` | **Container** | A Class, Struct, Module, or Namespace. |
-| `~` | **Function** | A function, method, or procedure. |
-| `@` | **Variable** | A property, field, constant, or state variable. |
-
-#### Type System Definitions & References
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `{}` | **Interface/Struct** | Defines a data shape, contract, or complex object type. |
-| `☰` | **Enum** | Defines a set of named constant values. |
-| `=:` | **Type Alias** | Assigns a new name to an existing type. |
-| `#` | **Type Reference** | *References* an existing type in a signature or property. |
-
-#### Markup (HTML) & Style (CSS)
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `⛶` | **HTML Element** | Represents an element tag. Indentation denotes hierarchy. |
-| `¶` | **CSS Rule** | Represents a selector and its associated style block. |
-| `📐` | **Layout Intent** | CSS rule affects geometry (box model, flex, grid, position). |
-| `✍` | **Text Intent** | CSS rule affects typography (font, text styles). |
-| `💧` | **Appearance Intent**| CSS rule affects appearance (color, background, border, shadow). |
-
-#### Function & Method Qualifiers
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `+` / `-` | **Access** | Public (+) or Private (-) visibility. |
-| `...` | **Async** | The function is asynchronous (`await`able). |
-| `!` | **Throws** | The function can throw an exception or return an error. |
-| `o` | **Pure** | The function has no side effects. |
-
----
-
-
-## 7. Detailed Examples by Paradigm
-
-#### Object-Oriented Programming (OOP)
-```scn
-§ (10) models/user.ts
-  <- (11.1)
-  ◇ (10.1) User
-    + @ id: #(string)
-
-§ (11) services/auth.ts
-  -> (10.1)
-  <- (12.1)
-  ◇ (11.1) AuthService
-    - @ db: #(DB)
-    + ~ login(email: #, pass: #): #(10.1) ...!
-```
-**Shows:** Encapsulation (`- @ db`), dependency injection, and a public method with async/throws qualifiers.
-
-#### Functional Programming (FP)
-```scn
-§ (20) utils/validators.js
-  <- (22.1)
-  + ~ (20.1) isEmail(str: #): #(bool) o
-  + ~ (20.2) isSecure(pwd: #): #(bool) o
-
-§ (21) api/client.js
-  <- (22.1)
-  + ~ (21.1) postUser(data: #): #(Promise) ...!
-
-§ (22) pipelines/registration.js
-  -> (20.1), (20.2), (21.1)
-  + ~ (22.1) register(userData: #): #(Result) ...
-```
-**Shows:** Pure functions (`o`), composition (one function `(22.1)` depending on three others), and separation of pure/impure logic.
-
-#### Declarative UI (HTML/CSS)
-```scn
-§ (30) login.html
-  -> (31.0)
-  ⛶ (30.1) form [ id:#login-form ]
-    ⛶ (30.2) input [ class:.input ] -> (31.1)
-    ⛶ (30.3) button [ class:.btn ] -> (31.2)
-
-§ (31) login.css
-  ¶ (31.1) .input { 📐 ✍ }
-  ¶ (31.2) .btn { 📐 ✍ 💧 }
-```
-**Shows:** HTML hierarchy, `class` attributes linking directly to CSS rules, and CSS intent symbols summarizing the purpose of each rule.
-
----
-````
-
-## File: tsconfig.json
-````json
-{
-  "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
-
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-
-    // Best practices
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
-  }
-}
-````
-
-## File: package.json
-````json
-{
-  "name": "scn-ts",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
-}
-````
-
-## File: README.md
-````markdown
-# scn-ts: The SCN Generator Engine
-
-[![NPM Version](https://img.shields.io/npm/v/scn-ts.svg)](https://www.npmjs.com/package/scn-ts)
-[![Spec Version](https://img.shields.io/badge/SCN%20Spec-v1.0-blue.svg)](https://github.com/scn-lang/scn)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/scn-lang/scn-ts/ci.yml?branch=main)](https://github.com/scn-lang/scn-ts/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Discussions](https://img.shields.io/badge/Discussions-Join_Here-green.svg)](https://github.com/scn-lang/scn/discussions)
-
-**`scn-ts` is the official reference implementation and generator engine for Symbolic Context Notation (SCN).**
-
-This is a command-line tool and a powerful programmatic library designed to create SCN context maps from any codebase. While its core is built in TypeScript and it has first-class support for **JS/TS**, its architecture is designed to be **language-agnostic** through a plugin system.
-
-`scn-ts` analyzes your project's structure—classes, functions, types, and their relationships—and outputs a hyper-efficient SCN map. This map gives Large Language Models (LLMs) unparalleled architectural context at a fraction of the token cost of raw source code, bridging the "Context Chasm" and enabling smarter, faster, and more accurate AI-assisted development.
-
-## Table of Contents
-
-1.  [**What is SCN?**](#1-what-is-scn)
-2.  [**Features**](#2-features)
-3.  [**Installation**](#3-installation)
-4.  [**Quick Start: CLI Usage**](#4-quick-start-cli-usage)
-5.  [**How It Works: A Pluggable Pipeline**](#5-how-it-works-a-pluggable-pipeline)
-6.  [**Programmatic API: High & Low Level**](#6-programmatic-api-high--low-level)
-    *   [High-Level API (Simple)](#high-level-api-simple)
-    *   [Low-Level API (Advanced)](#low-level-api-advanced)
-7.  [**Configuration (`scn.config.js`)**](#7-configuration-scnconfigjs)
-8.  [**Command-Line Interface (CLI)**](#8-command-line-interface-cli)
-9.  [**Roadmap & The Multi-Language Vision**](#9-roadmap--the-multi-language-vision)
-10. [**Contributing**](#10-contributing)
-11. [**License**](#11-license)
-
----
-
-## 1. What is SCN?
-
-**Symbolic Context Notation (SCN)** is a format designed to represent a software project's structural surface, API, and inter-file relationships. It strips away implementation logic to create a compressed blueprint of your codebase.
-
-| Before SCN (Raw Code)                                    | After SCN (Context Map)                     | Token Savings |
-| -------------------------------------------------------- | ------------------------------------------- | ------------- |
-| A 200-line React component with state, effects, and JSX. | A 15-line SCN block showing its props,      | ~92%          |
-| A 5-file utility library with complex internal logic.    | A 25-line SCN graph showing public exports  | ~85%          |
-
-By providing an SCN map to an LLM instead of raw code, you can fit 10-20x more relevant context into a single prompt, eliminating hallucinations and enabling the AI to reason about your entire project architecture.
-
-For the complete specification, please see the [**Official SCN Spec v1.0**](https://github.com/scn-lang/scn).
-
-## 2. Features
-
-*   **Multi-Language by Design:** A core engine with a plugin architecture to support dozens of languages (JS, TS, Python, Go, Rust, and more).
-*   **Deep JS/TS Support:** The default plugin uses the TypeScript Compiler API for best-in-class analysis of JavaScript and TypeScript projects, including JSX/TSX.
-*   **Powerful Programmatic APIs:** Use a simple high-level API for quick generation, or a low-level API for deep integration and custom tooling.
-*   **Project-Wide Graph Analysis:** Scans your entire project to build a complete dependency graph, mapping imports/exports (`->`) and call sites (`<-`).
-*   **Highly Configurable:** Use a `scn.config.js` file to define include/exclude patterns, plugins, and output settings.
-*   **Watch Mode:** Automatically re-generate the SCN map on file changes for a seamless development experience.
-
-## 3. Installation
-
-Install `scn-ts` as a development dependency.
-
-```bash
-# Using Bun
-bun i -D scn-ts
-
-# Using NPM
-npm install --save-dev scn-ts
-
-# Using Yarn
-yarn add --dev scn-ts
-```
-
-## 4. Quick Start: CLI Usage
-
-The easiest way to get started is to run `scn-ts` from your project's root directory.
-
-```bash
-npx scn-ts "src/**/*.{ts,tsx}" --output context.scn
-```
-
-This command will:
-*   Find all `.ts` and `.tsx` files inside your `src/` directory.
-*   Analyze them using the built-in TypeScript/JavaScript parser.
-*   Generate a single `context.scn` file containing the complete SCN map.
-
-## 5. How It Works: A Pluggable Pipeline
-
-`scn-ts` processes code in a four-stage pipeline. This design allows new languages to be "plugged in" by providing a custom parser.
-
-1.  **Glob & Load:** The tool finds all files matching the include/exclude patterns.
-2.  **Parse (Pluggable):** Each file's content is passed to the appropriate language parser. The parser's job is to convert the source code into a standardized **SCN Abstract Syntax Tree (AST)**.
-    *   *Default:* The built-in parser uses the **TypeScript Compiler API** for `.ts`, `.tsx`, `.js`, and `.jsx` files.
-    *   *Future:* A Python plugin would use a Python parser (e.g., Tree-sitter) to produce the same SCN AST format.
-3.  **Index & Resolve:** The engine takes the SCN ASTs from all files and builds a single, project-wide graph. It indexes all entities (classes, functions, etc.) and resolves the `->` (dependency) and `<-` (caller) relationships between them.
-4.  **Serialize:** The final in-memory graph is serialized into the ultra-compact SCN text format.
-
-## 6. Programmatic API: High & Low Level
-
-`scn-ts` exposes a flexible API for programmatic use.
-
-### High-Level API (Simple)
-
-For most use cases, the `generateScn` function is all you need. It handles the entire pipeline in one call.
-
-```typescript
-import { generateScn } from 'scn-ts';
-import fs from 'fs/promises';
-
-async function buildContext() {
-  const scnOutput = await generateScn({
-    // Options are identical to the config file
-    include: ['src/**/*.{ts,tsx}'],
-    exclude: ['**/*.spec.ts'],
-    // plugins: [pythonParser()] // Future plugin usage
+## File: repograph/test/e2e/cli.test.ts
+````typescript
+import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+import { spawn } from 'node:child_process';
+import {
+  createTempDir,
+  cleanupTempDir,
+  createTestFiles,
+  createGitignore,
+  assertFileExists,
+  readFile,
+  isValidMarkdown,
+  containsValidMermaid,
+  loadFixture,
+  createProjectFromFixture
+} from '../test.util.js';
+import path from 'node:path';
+
+describe('CLI End-to-End Tests', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir();
   });
 
-  await fs.writeFile('context.scn', scnOutput, 'utf-8');
-  console.log('SCN map generated!');
-}
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
 
-buildContext();
-```
+  const runCLI = async (args: string[], cwd?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
+    return new Promise((resolve, reject) => {
+      const child = spawn('bun', ['run', 'src/index.ts', ...args], {
+        cwd: cwd || process.cwd(),
+        stdio: 'pipe'
+      });
 
-### Low-Level API (Advanced)
+      let stdout = '';
+      let stderr = '';
 
-For building custom tools, you can access each stage of the pipeline. This allows you to inspect or modify the intermediate data structures.
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
 
-```typescript
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        resolve({
+          stdout,
+          stderr,
+          exitCode: code || 0
+        });
+      });
+
+      child.on('error', reject);
+    });
+  };
+
+  describe('Basic CLI Usage', () => {
+    it('should generate map with default options', async () => {
+      const files = {
+        'src/index.ts': `export class Example {
+  method(): string {
+    return 'hello';
+  }
+}`
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([tempDir]);
+
+      expect(result.exitCode).toBe(0);
+      await assertFileExists(path.join(tempDir, 'repograph.md'));
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(isValidMarkdown(content)).toBe(true);
+      expect(content).toContain('Example');
+    });
+
+    it('should accept custom output path', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const outputPath = path.join(tempDir, 'custom-output.md');
+      const result = await runCLI([tempDir, '--output', outputPath]);
+
+      expect(result.exitCode).toBe(0);
+      await assertFileExists(outputPath);
+    });
+
+    it('should accept include patterns', async () => {
+      const files = {
+        'src/index.ts': 'export const ts = true;',
+        'src/index.js': 'export const js = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '**/*.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('src/index.ts');
+      expect(content).not.toContain('src/index.js');
+    });
+
+    it('should accept ignore patterns', async () => {
+      const files = {
+        'src/index.ts': 'export const main = true;',
+        'src/test.spec.ts': 'test code'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--ignore', '**/*.spec.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('src/index.ts');
+      expect(content).not.toContain('src/test.spec.ts');
+    });
+
+    it('should accept ranking strategy option', async () => {
+      const files = {
+        'src/index.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--ranking-strategy', 'git-changes'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      await assertFileExists(path.join(tempDir, 'repograph.md'));
+    });
+
+    it('should accept no-gitignore flag', async () => {
+      const files = {
+        'src/index.ts': 'export const main = true;',
+        'dist/index.js': 'compiled code'
+      };
+      await createTestFiles(tempDir, files);
+      await createGitignore(tempDir, ['dist/']);
+
+      const result = await runCLI([
+        tempDir,
+        '--no-gitignore'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('dist/index.js');
+    });
+
+    it('should show help when --help flag is used', async () => {
+      const result = await runCLI(['--help']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Usage:');
+      expect(result.stdout).toContain('Options:');
+    });
+
+    it('should show version when --version flag is used', async () => {
+      const result = await runCLI(['--version']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle non-existent directory', async () => {
+      const nonExistentDir = path.join(tempDir, 'non-existent');
+      const result = await runCLI([nonExistentDir]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain('Error');
+    });
+
+    it('should handle invalid output directory', async () => {
+      const files = {
+        'src/index.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const invalidOutput = '/root/cannot-write-here.md';
+      const result = await runCLI([
+        tempDir,
+        '--output', invalidOutput
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+    });
+
+    it('should handle invalid ranking strategy', async () => {
+      const files = {
+        'src/index.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--ranking-strategy', 'invalid-strategy'
+      ]);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain('Invalid ranking strategy');
+    });
+
+    it('should handle malformed include patterns gracefully', async () => {
+      const files = {
+        'src/index.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '[invalid-pattern'
+      ]);
+
+      // Should not crash, but might produce empty output
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
+  describe('Multiple Arguments', () => {
+    it('should handle multiple include patterns', async () => {
+      const files = {
+        'src/index.ts': 'export const ts = true;',
+        'lib/utils.js': 'export const js = true;',
+        'docs/readme.md': '# Documentation'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '**/*.ts',
+        '--include', '**/*.js'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('src/index.ts');
+      expect(content).toContain('lib/utils.js');
+      expect(content).not.toContain('docs/readme.md');
+    });
+
+    it('should handle multiple ignore patterns', async () => {
+      const files = {
+        'src/index.ts': 'export const main = true;',
+        'src/test.spec.ts': 'test code',
+        'src/utils.test.ts': 'test utils',
+        'src/helper.ts': 'helper code'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--ignore', '**/*.spec.ts',
+        '--ignore', '**/*.test.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('src/index.ts');
+      expect(content).toContain('src/helper.ts');
+      expect(content).not.toContain('src/test.spec.ts');
+      expect(content).not.toContain('src/utils.test.ts');
+    });
+  });
+
+  describe('Output Customization Flags', () => {
+    beforeEach(async () => {
+      const files = {
+        'src/index.ts': `import { helper, another, onemore } from './utils.js';
+export function main() { helper(); another(); onemore(); }`,
+        'src/utils.ts': `export function helper() {}
+export function another() {}
+export function onemore() {}`
+      };
+      await createTestFiles(tempDir, files);
+    });
+    
+    const flagTestCases = [
+      { name: 'no-header', args: ['--no-header'], notToContain: '# RepoGraph' },
+      { name: 'no-overview', args: ['--no-overview'], notToContain: '## 🚀 Project Overview' },
+      { name: 'no-mermaid', args: ['--no-mermaid'], notToContain: '```mermaid' },
+      { name: 'no-file-list', args: ['--no-file-list'], notToContain: '### Top 10 Most Important Files' },
+      { name: 'no-symbol-details', args: ['--no-symbol-details'], notToContain: '## 📂 File & Symbol Breakdown' },
+      { name: 'top-file-count', args: ['--top-file-count', '1'], toContain: '### Top 1 Most Important Files' },
+      { name: 'file-section-separator', args: ['--file-section-separator', '***'], toContain: '\n***\n\n' },
+      { name: 'no-symbol-relations', args: ['--no-symbol-relations'], notToContain: '(calls' },
+      { name: 'no-symbol-line-numbers', args: ['--no-symbol-line-numbers'], notToContain: '_L2_' },
+      { name: 'no-symbol-snippets', args: ['--no-symbol-snippets'], notToContain: '```typescript' },
+      { name: 'max-relations-to-show', args: ['--max-relations-to-show', '1'], toContain: 'calls `helper`...', notToContain: '`another`' },
+    ];
+
+    it.each(flagTestCases)('should handle flag $name', async ({ args, toContain, notToContain }) => {
+      await runCLI([tempDir, ...args]);
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      if (toContain) {
+        expect(content).toContain(toContain);
+      }
+      if (notToContain) {
+        expect(content).not.toContain(notToContain);
+      }
+    });
+  });
+
+  describe('Output Validation', () => {
+    it('should generate valid markdown structure', async () => {
+      const files = {
+        'src/calculator.ts': `export class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}`,
+        'src/logger.ts': `export class Logger {
+  log(message: string): void {
+    console.log(message);
+  }
+}`
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([tempDir]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      
+      // Check markdown structure
+      expect(content).toContain('# RepoGraph');
+      expect(content).toContain('## 🚀 Project Overview');
+      expect(content).toContain('### Module Dependency Graph');
+      expect(content).toContain('### Top 10 Most Important Files');
+      expect(content).toContain('## 📂 File & Symbol Breakdown');
+      
+      // Check Mermaid graph
+      expect(containsValidMermaid(content)).toBe(true);
+      
+      // Check symbol details
+      expect(content).toContain('Calculator');
+      expect(content).toContain('Logger');
+    });
+
+    it('should handle projects with complex dependencies', async () => {
+      const files = {
+        'src/index.ts': `import { Database } from './database.js';
+import { ApiServer } from './api.js';
+
+export class App {
+  constructor(
+    private db: Database,
+    private api: ApiServer
+  ) {}
+}`,
+        'src/database.ts': `export class Database {
+  connect(): Promise<void> {
+    return Promise.resolve();
+  }
+}`,
+        'src/api.ts': `import { Database } from './database.js';
+
+export class ApiServer {
+  constructor(private db: Database) {}
+}`
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([tempDir]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('App');
+      expect(content).toContain('Database');
+      expect(content).toContain('ApiServer');
+      expect(containsValidMermaid(content)).toBe(true);
+    });
+  });
+
+  describe('Integration with Fixtures', () => {
+    it('should process sample-project fixture via CLI', async () => {
+      const fixture = await loadFixture('sample-project');
+      await createProjectFromFixture(tempDir, fixture);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '**/*.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(isValidMarkdown(content)).toBe(true);
+      expect(content).toContain('Calculator');
+      expect(content).toContain('Logger');
+      expect(content).toContain('AdvancedCalculator');
+    });
+
+    it('should process complex-project fixture via CLI', async () => {
+      const fixture = await loadFixture('complex-project');
+      await createProjectFromFixture(tempDir, fixture);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '**/*.ts',
+        '--ranking-strategy', 'pagerank'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(isValidMarkdown(content)).toBe(true);
+      expect(content).toContain('Database');
+      expect(content).toContain('ApiServer');
+      expect(content).toContain('UserService');
+    });
+
+    it('should handle minimal-project fixture via CLI', async () => {
+      const fixture = await loadFixture('minimal-project');
+      await createProjectFromFixture(tempDir, fixture);
+
+      const result = await runCLI([tempDir]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(isValidMarkdown(content)).toBe(true);
+      expect(content).toContain('src/main.ts');
+      expect(content).toContain('hello');
+      expect(content).toContain('greet');
+    });
+  });
+
+  describe('Performance', () => {
+    it('should handle moderately large projects in reasonable time', async () => {
+      // Create a project with many files
+      const files: Record<string, string> = {};
+      
+      for (let i = 0; i < 30; i++) {
+        files[`src/module${i}.ts`] = `export class Module${i} {
+  process(): string {
+    return 'module${i}';
+  }
+}`;
+      }
+
+      // Add some imports
+      files['src/index.ts'] = Array.from({ length: 30 }, (_, i) => 
+        `import { Module${i} } from './module${i}.js';`
+      ).join('\n') + '\n\nexport const modules = [' + 
+      Array.from({ length: 30 }, (_, i) => `Module${i}`).join(', ') + '];';
+
+      await createTestFiles(tempDir, files);
+
+      const startTime = Date.now();
+      const result = await runCLI([tempDir]);
+      const endTime = Date.now();
+
+      expect(result.exitCode).toBe(0);
+      expect(endTime - startTime).toBeLessThan(15000); // Should complete within 15 seconds
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('Module0');
+      expect(content).toContain('Module29');
+    });
+  });
+
+  describe('Real-world Scenarios', () => {
+    it('should work with TypeScript project structure', async () => {
+      const files = {
+        'package.json': JSON.stringify({
+          name: 'my-project',
+          version: '1.0.0',
+          type: 'module',
+          scripts: {
+            build: 'tsc',
+            test: 'bun test'
+          }
+        }, null, 2),
+        'tsconfig.json': JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'ESNext',
+            outDir: './dist'
+          }
+        }, null, 2),
+        'src/index.ts': `export { Calculator } from './lib/calculator.js';
+export type { CalculatorOptions } from './types.js';`,
+        'src/lib/calculator.ts': `import type { CalculatorOptions } from '../types.js';
+
+export class Calculator {
+  constructor(private options: CalculatorOptions) {}
+  
+  calculate(expression: string): number {
+    return eval(expression);
+  }
+}`,
+        'src/types.ts': `export interface CalculatorOptions {
+  precision: number;
+  mode: 'strict' | 'loose';
+}`,
+        'README.md': '# My Calculator Project'
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', 'src/**/*.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('Calculator');
+      expect(content).toContain('CalculatorOptions');
+      expect(content).not.toContain('package.json');
+      expect(content).not.toContain('README.md');
+    });
+
+    it('should work with monorepo structure', async () => {
+      const files = {
+        'packages/core/src/index.ts': `export { Engine } from './engine.js';`,
+        'packages/core/src/engine.ts': `export class Engine {
+  start(): void {
+    console.log('Engine started');
+  }
+}`,
+        'packages/ui/src/index.ts': `export { Component } from './component.js';`,
+        'packages/ui/src/component.ts': `import { Engine } from '../../core/src/engine.js';
+
+export class Component {
+  private engine = new Engine();
+  
+  render(): void {
+    this.engine.start();
+  }
+}`,
+        'apps/web/src/main.ts': `import { Component } from '../../../packages/ui/src/component.js';
+
+const component = new Component();
+component.render();`
+      };
+      await createTestFiles(tempDir, files);
+
+      const result = await runCLI([
+        tempDir,
+        '--include', '**/*.ts'
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('Engine');
+      expect(content).toContain('Component');
+      expect(content).toContain('packages/core/src/engine.ts');
+      expect(content).toContain('packages/ui/src/component.ts');
+      expect(content).toContain('apps/web/src/main.ts');
+    });
+
+    it('should respect gitignore in real project', async () => {
+      const files = {
+        'src/index.ts': 'export const main = true;',
+        'src/utils.ts': 'export const util = true;',
+        'dist/index.js': 'compiled code',
+        'node_modules/package/index.js': 'dependency',
+        'coverage/lcov.info': 'coverage data',
+        '.env': 'SECRET=value',
+        'logs/app.log': 'log content'
+      };
+      await createTestFiles(tempDir, files);
+      await createGitignore(tempDir, [
+        'dist/',
+        'node_modules/',
+        'coverage/',
+        '.env',
+        'logs/'
+      ]);
+
+      const result = await runCLI([tempDir]);
+
+      expect(result.exitCode).toBe(0);
+      
+      const content = await readFile(path.join(tempDir, 'repograph.md'));
+      expect(content).toContain('src/index.ts');
+      expect(content).toContain('src/utils.ts');
+      expect(content).not.toContain('dist/index.js');
+      expect(content).not.toContain('node_modules/package/index.js');
+      expect(content).not.toContain('coverage/lcov.info');
+      expect(content).not.toContain('.env');
+      expect(content).not.toContain('logs/app.log');
+    });
+  });
+});
+````
+
+## File: repograph/test/unit/high-level.test.ts
+````typescript
+import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
+import { generateMap } from '../../src/high-level.js';
+import type { RepoGraphOptions } from '../../src/types.js';
 import {
-  loadFiles,
-  parse,
-  buildGraph,
-  serializeGraph
-} from 'scn-ts';
-import fs from 'fs/promises';
+  createTempDir,
+  cleanupTempDir,
+  createTestFiles,
+  assertFileExists,
+  readFile,
+  isValidMarkdown
+} from '../test.util.js';
+import path from 'node:path';
 
-async function customBuildContext() {
-  // 1. Load file contents
-  const files = await loadFiles({ include: ['src/**/*.ts'] });
+describe('High-Level API', () => {
+  let tempDir: string;
 
-  // 2. Parse files into SCN ASTs
-  // The 'parse' function automatically uses the correct plugin
-  const scnAsts = await parse(files);
+  beforeEach(async () => {
+    tempDir = await createTempDir();
+  });
 
-  // --- You can now inspect or transform the ASTs ---
-  console.log(`Parsed ${scnAsts.length} files.`);
+  afterEach(async () => {
+    await cleanupTempDir(tempDir);
+  });
 
-  // 3. Build the final, resolved graph
-  const scnGraph = buildGraph(scnAsts);
+  describe('generateMap()', () => {
+    it('should be a function', () => {
+      expect(typeof generateMap).toBe('function');
+    });
 
-  // --- You could now perform your own analysis on the graph ---
-  console.log(`Graph has ${scnGraph.entities.length} total entities.`);
+    it('should accept RepoGraphOptions parameter', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-  // 4. Serialize the graph to the SCN format
-  const scnOutput = serializeGraph(scnGraph);
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'test.md')
+      };
 
-  await fs.writeFile('context.scn', scnOutput, 'utf-8');
-  console.log('Custom SCN build complete!');
-}
+      await generateMap(options);
+      // If we get here without throwing, the test passes
+    });
 
-customBuildContext();
-```
+    it('should use default values for missing options', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-## 7. Configuration (`scn.config.js`)
+      const originalCwd = process.cwd();
+      
+      try {
+        process.chdir(tempDir);
+        await generateMap();
+        await assertFileExists(path.join(tempDir, 'repograph.md'));
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
 
-For project-wide settings, create a `scn.config.js` file in your root.
+    it('should validate ranking strategy option', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-```javascript
-// scn.config.js
-module.exports = {
-  /**
-   * Path to tsconfig.json for the default JS/TS parser.
-   * Highly recommended for correct type analysis and path aliases.
-   */
-  project: './tsconfig.json',
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'test.md'),
+        rankingStrategy: 'invalid-strategy' as any
+      };
 
-  /** Glob patterns to include. */
-  include: [
-    'src/**/*.{ts,tsx}',
-    'app/**/*.py', // Example for a future python plugin
-  ],
+      await expect(generateMap(options)).rejects.toThrow('Invalid ranking strategy');
+    });
 
-  /** Glob patterns to exclude. */
-  exclude: [
-    '**/*.d.ts',
-    '**/*.test.ts',
-    'dist/**/*',
-  ],
+    it('should accept valid ranking strategies', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-  /** Path for the final output file. */
-  output: 'context.scn',
+      const pageRankOptions: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'pagerank.md'),
+        rankingStrategy: 'pagerank'
+      };
 
-  /** (Future) An array of language parser plugins. */
-  // plugins: [
-  //   require('scn-parser-python')()
-  // ],
-};
-```
+      const gitOptions: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'git.md'),
+        rankingStrategy: 'git-changes'
+      };
 
-## 8. Command-Line Interface (CLI)
+      await generateMap(pageRankOptions);
+      await generateMap(gitOptions);
+      // If we get here without throwing, the test passes
+    });
 
-Override any config setting with command-line flags.
+    it('should pass through all options to pipeline', async () => {
+      const files = {
+        'src/index.ts': 'export const ts = true;',
+        'src/index.js': 'export const js = true;',
+        'src/test.spec.ts': 'test code'
+      };
+      await createTestFiles(tempDir, files);
 
-```
-npx scn-ts [globs...] [options]
-```
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'filtered.md'),
+        include: ['**/*.ts'],
+        ignore: ['**/*.spec.ts'],
+        noGitignore: true,
+        rankingStrategy: 'pagerank',
+        rendererOptions: {
+          customHeader: '# Custom Header',
+          includeMermaidGraph: false,
+          includeSymbolDetails: false
+        }
+      };
 
-| Flag              | Alias | Description                                        |
-| ----------------- | ----- | -------------------------------------------------- |
-| `--output <path>` | `-o`  | Specify the output file path.                      |
-| `--project <path>`| `-p`  | Path to `tsconfig.json` for TS/JS projects.        |
-| `--watch`         | `-w`  | Watch files and re-generate on changes.            |
-| `--config <path>` | `-c`  | Path to a custom config file.                      |
-| `--version`       | `-v`  | Display the version number.                        |
-| `--help`          | `-h`  | Display the help screen.                           |
+      await generateMap(options);
 
-## 9. Roadmap & The Multi-Language Vision
+      const content = await readFile(path.join(tempDir, 'filtered.md'));
+      expect(content).toStartWith('# Custom Header');
+      expect(content).toContain('src/index.ts');
+      expect(content).not.toContain('src/index.js');
+      expect(content).not.toContain('src/test.spec.ts');
+      expect(content).not.toContain('```mermaid');
+    });
 
-The SCN standard and `scn-ts` are actively evolving. Our primary goal is to create a truly universal SCN generator.
+    it('should handle relative paths correctly', async () => {
+      const files = {
+        'project/src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-*   [ ] **Formalize the Plugin API:** Define and document the official interface for creating custom language parsers.
-*   [ ] **Release Official Language Plugins:**
-    *   [ ] `scn-parser-python`
-    *   [ ] `scn-parser-go`
-    *   [ ] `scn-parser-rust`
-*   [ ] **Enhance Caller Resolution (`<-`):** Deepen analysis to trace function calls inside other function bodies for a more complete graph.
-*   [ ] **Performance Optimizations:** Ensure `scn-ts` can handle codebases with millions of lines of code across multiple languages.
-*   [ ] **Configuration File Support:** Add plugins for parsing `.json`, `.yaml`, and `.xml` files into SCN.
+      const projectDir = path.join(tempDir, 'project');
+      const relativePath = path.relative(process.cwd(), projectDir);
 
-## 10. Contributing
+      const options: RepoGraphOptions = {
+        root: relativePath,
+        output: path.join(tempDir, 'relative.md')
+      };
 
-We welcome community contributions, especially for new language support!
+      await generateMap(options);
+      await assertFileExists(path.join(tempDir, 'relative.md'));
+    });
 
-1.  **Discussions:** Have an idea or a question? Start a conversation on [GitHub Discussions](https://github.com/scn-lang/scn/discussions).
-2.  **Language Plugins:** If you have expertise in a language's AST or tooling (e.g., Tree-sitter, ANTLR), we would love your help in creating a new parser plugin. Check the issues for our Plugin API proposal.
-3.  **Issues & PRs:** Find a bug or want to improve the core engine? [Open an issue](https://github.com/scn-lang/scn-ts/issues) or submit a Pull Request.
+    it('should create output directory if it does not exist', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
 
-## 11. License
+      const nestedOutput = path.join(tempDir, 'nested', 'deep', 'output.md');
+      
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: nestedOutput
+      };
 
-This project is licensed under the **MIT License**.
+      await generateMap(options);
+      await assertFileExists(nestedOutput);
+    });
+
+    it('should handle empty projects gracefully', async () => {
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'empty.md')
+      };
+
+      await generateMap(options);
+
+      const content = await readFile(path.join(tempDir, 'empty.md'));
+      expect(isValidMarkdown(content)).toBe(true);
+      expect(content).toContain('This repository contains 0 nodes (0 files)');
+    });
+
+    it('should handle projects with only non-code files', async () => {
+      const files = {
+        'README.md': '# Project',
+        'package.json': '{"name": "test"}',
+        'LICENSE': 'MIT License'
+      };
+      await createTestFiles(tempDir, files);
+
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'non-code.md'),
+        include: ['**/*.ts', '**/*.js'] // Only include code files
+      };
+
+      await generateMap(options);
+
+      const content = await readFile(path.join(tempDir, 'non-code.md'));
+      expect(content).toContain('This repository contains 0 nodes (0 files)');
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should throw error for non-existent root directory', async () => {
+      const options: RepoGraphOptions = {
+        root: path.join(tempDir, 'non-existent'),
+        output: path.join(tempDir, 'error.md')
+      };
+
+      await expect(generateMap(options)).rejects.toThrow();
+    });
+
+    it('should throw error for invalid output path', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: '/root/cannot-write-here.md'
+      };
+
+      await expect(generateMap(options)).rejects.toThrow();
+    });
+
+    it('should handle malformed include patterns gracefully', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'malformed.md'),
+        include: ['[invalid-pattern']
+      };
+
+      // Should not throw, but may result in empty output
+      await generateMap(options);
+    });
+
+    it('should validate renderer options', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'test.md'),
+        rendererOptions: {
+          customHeader: '', // Empty header should be handled
+          includeMermaidGraph: true,
+          includeSymbolDetails: true
+        }
+      };
+
+      await generateMap(options);
+    });
+  });
+
+  describe('Option Validation', () => {
+    it('should accept all valid RepoGraphOptions properties', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const completeOptions: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'complete.md'),
+        include: ['**/*.ts'],
+        ignore: ['**/*.spec.ts'],
+        noGitignore: false,
+        rankingStrategy: 'pagerank',
+        rendererOptions: {
+          customHeader: '# Test Project',
+          includeMermaidGraph: true,
+          includeSymbolDetails: true
+        }
+      };
+
+      await generateMap(completeOptions);
+    });
+
+    it('should handle partial options correctly', async () => {
+      const files = {
+        'src/test.ts': 'export const test = true;'
+      };
+      await createTestFiles(tempDir, files);
+
+      const minimalOptions: RepoGraphOptions = {
+        root: tempDir
+      };
+
+      await generateMap(minimalOptions);
+    });
+
+    it('should handle empty options object', async () => {
+      const originalCwd = process.cwd();
+      
+      try {
+        process.chdir(tempDir);
+        
+        const files = {
+          'src/test.ts': 'export const test = true;'
+        };
+        await createTestFiles(tempDir, files);
+
+        await generateMap({});
+      } finally {
+        process.chdir(originalCwd);
+      }
+    });
+  });
+
+  describe('Integration with Components', () => {
+    it('should use default pipeline components', async () => {
+      const files = {
+        'src/calculator.ts': `export class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+}`,
+        'src/index.ts': `import { Calculator } from './calculator.js';
+export { Calculator };`
+      };
+      await createTestFiles(tempDir, files);
+
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'default-components.md')
+      };
+
+      await generateMap(options);
+
+      const content = await readFile(path.join(tempDir, 'default-components.md'));
+      
+      // Should contain results from all pipeline stages
+      expect(content).toContain('Calculator'); // From analysis
+      expect(content).toContain('```mermaid'); // From rendering
+      expect(content).toContain('src/calculator.ts'); // From discovery
+    });
+
+    it('should work with different ranking strategies', async () => {
+      const files = {
+        'src/hub.ts': 'export class Hub {}',
+        'src/a.ts': `import { Hub } from './hub.js';`,
+        'src/b.ts': `import { Hub } from './hub.js';`
+      };
+      await createTestFiles(tempDir, files);
+
+      const pageRankOptions: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'pagerank.md'),
+        rankingStrategy: 'pagerank'
+      };
+
+      const gitOptions: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'git.md'),
+        rankingStrategy: 'git-changes'
+      };
+
+      await generateMap(pageRankOptions);
+      await generateMap(gitOptions);
+
+      const pageRankContent = await readFile(path.join(tempDir, 'pagerank.md'));
+      const gitContent = await readFile(path.join(tempDir, 'git.md'));
+
+      expect(isValidMarkdown(pageRankContent)).toBe(true);
+      expect(isValidMarkdown(gitContent)).toBe(true);
+      
+      // Both should contain the same files but potentially different rankings
+      expect(pageRankContent).toContain('Hub');
+      expect(gitContent).toContain('Hub');
+    });
+  });
+
+  describe('Performance', () => {
+    it('should handle reasonable project sizes efficiently', async () => {
+      const files: Record<string, string> = {};
+      
+      // Create 20 files with some dependencies
+      for (let i = 0; i < 20; i++) {
+        files[`src/module${i}.ts`] = `export class Module${i} {
+  getValue(): number {
+    return ${i};
+  }
+}`;
+      }
+
+      // Add an index file that imports everything
+      files['src/index.ts'] = Array.from({ length: 20 }, (_, i) => 
+        `import { Module${i} } from './module${i}.js';`
+      ).join('\n');
+
+      await createTestFiles(tempDir, files);
+
+      const startTime = Date.now();
+      
+      const options: RepoGraphOptions = {
+        root: tempDir,
+        output: path.join(tempDir, 'performance.md')
+      };
+
+      await generateMap(options);
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+
+      expect(duration).toBeLessThan(5000); // Should complete within 5 seconds
+
+      const content = await readFile(path.join(tempDir, 'performance.md'));
+      expect(content).toContain('Module0');
+      expect(content).toContain('Module19');
+    });
+  });
+});
 ````

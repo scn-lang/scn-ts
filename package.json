@@ -1,8 +1,11 @@
 {
   "name": "scn-ts",
-  "module": "index.ts",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "dependencies": {
+    "repograph": "^0.1.3"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

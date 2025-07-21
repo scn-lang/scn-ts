@@ -1,0 +1,161 @@
+uuid: 440db7f9-6799-4d8e-9c2c-7b0b17135e62
+projectId: scn-ts
+createdAt: '2025-07-20T23:08:28.955Z'
+linesAdded: 3
+linesRemoved: 2
+gitCommitMsg: 'fix(error): ensure option validation errors are not swallowed'
+promptSummary: >-
+  The user's tests are failing because a specific error message ('Invalid
+  ranking strategy') is being swallowed by a generic error handler. I need to
+  refactor the code to ensure the specific error message is propagated, which
+  will fix the tests.
+reasoning:
+  - >-
+    It appears the error handling in the `repograph` library is too broad,
+    catching specific validation errors (like an invalid ranking strategy) and
+    wrapping them in a generic `RepoGraphError`. This obscures the original,
+    more informative error message, causing the unit and end-to-end tests to
+    fail.
+  - >-
+    To fix this, I will move the option validation logic outside of the main
+    `try...catch` block in the `analyzeProject` function. This ensures that
+    validation errors are thrown directly, allowing the tests to catch the
+    expected specific error messages. This change only affects
+    `repograph/src/high-level.ts`.
+operations:
+  - type: write
+    path: repograph/src/high-level.ts
+    content: >-
+      --- repograph/src/high-level.ts
+
+      +++ repograph/src/high-level.ts
+
+      @@ -32,10 +32,11 @@
+           logger.setLevel(logLevel);
+         }
+       
+      +  // Validate options before entering the main try...catch block to
+      provide clear errors.
+
+      +  const ranker = selectRanker(options.rankingStrategy);
+
+      +
+         try {
+      -    const ranker = selectRanker(options.rankingStrategy);
+
+      -
+           logger.info('1/3 Discovering files...');
+           const discoverer = createDefaultDiscoverer();
+           const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+    patchStrategy: new-unified
+snapshot:
+  repograph/src/high-level.ts: >-
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
+
+    import path from 'node:path';
+
+    import { logger } from './utils/logger.util.js';
+
+    import { writeFile } from './utils/fs.util.js';
+
+    import { RepoGraphError } from './utils/error.util.js';
+
+
+    const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] =
+    'pagerank'): Ranker => {
+      if (rankingStrategy === 'git-changes') {
+        return createGitRanker();
+      }
+      if (rankingStrategy === 'pagerank') {
+        return createPageRanker();
+      }
+      throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+    };
+
+
+    /**
+     * A mid-level API for programmatically generating and receiving the code graph
+     * without rendering it to a file. Ideal for integration with other tools.
+     *
+     * @param options The configuration object for generating the map.
+     * @returns The generated `RankedCodeGraph`.
+     */
+    export const analyzeProject = async (options: RepoGraphOptions = {}):
+    Promise<RankedCodeGraph> => {
+      const {
+        root = process.cwd(),
+        logLevel = 'info',
+        include,
+        ignore,
+        noGitignore,
+      } = options;
+
+      if (logLevel) {
+        logger.setLevel(logLevel);
+      }
+
+      try {
+        const ranker = selectRanker(options.rankingStrategy);
+
+        logger.info('1/3 Discovering files...');
+        const discoverer = createDefaultDiscoverer();
+        const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+        logger.info(`  -> Found ${files.length} files to analyze.`);
+
+        logger.info('2/3 Analyzing code and building graph...');
+        const analyzer = createTreeSitterAnalyzer();
+        const graph = await analyzer(files);
+        logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+        logger.info('3/3 Ranking graph nodes...');
+        const rankedGraph = await ranker(graph);
+        logger.info('  -> Ranking complete.');
+
+        return rankedGraph;
+      } catch (error) {
+        throw new RepoGraphError(`Failed to analyze project`, error);
+      }
+    };
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+      } = options;
+
+      try {
+        // We get the full ranked graph first
+        const rankedGraph = await analyzeProject(options);
+
+        logger.info('4/4 Rendering output...');
+        const renderer = createMarkdownRenderer();
+        const markdown = renderer(rankedGraph, options.rendererOptions);
+        logger.info('  -> Rendering complete.');
+
+        const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+        logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+        await writeFile(outputPath, markdown);
+        logger.info('  -> Report saved.');
+      } catch (error) {
+        // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+        throw error;
+      }
+    };
+approved: true

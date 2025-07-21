@@ -1,0 +1,1186 @@
+uuid: 44038676-47b1-4f16-86d7-40b54f67c427
+projectId: scn-ts
+createdAt: '2025-07-20T22:58:43.679Z'
+linesAdded: 153
+linesRemoved: 72
+gitCommitMsg: 'feat(repograph): add analyzeProject API and new node properties'
+promptSummary: >-
+  Fix TypeScript errors in scn-ts by updating it and its dependency, repograph,
+  to align their APIs and data models. This involves adding features to
+  repograph and adapting scn-ts to consume them correctly.
+reasoning:
+  - >-
+    Here are the modifications to fix the `scn-ts` build errors by updating both
+    the `repograph` library and the `scn-ts` consumer application.
+  - '### Reasoning for Changes'
+  - >-
+    The core issue is a type and API mismatch between `scn-ts` and its
+    dependency `repograph`. The `scn-ts` code was written against a different or
+    outdated version of the `repograph` API.
+  - 'To resolve this, I will perform two sets of changes:'
+  - >-
+    1.  **Enhance `repograph`:** I will add the missing types and properties to
+    `repograph`'s data model (`CodeNode`) that `scn-ts` requires. This includes
+    properties like `isPure` and `cssIntents`. I will also introduce a new
+    high-level function, `analyzeProject`, which returns the raw graph data,
+    making `repograph` more useful as a library for other tools like `scn-ts`.
+  - >-
+    2.  **Adapt `scn-ts`:** I will refactor `scn-ts` to correctly consume the
+    `repograph` API. This involves:
+  - '*   Using the new `analyzeProject` function.'
+  - >-
+    *   Rewriting the serializer to work with `repograph`'s flat graph structure
+    (`graph.nodes`) instead of the non-existent `graph.files`.
+  - >-
+    *   Updating property names (e.g., `edge.source` to `edge.fromId`,
+    `node.signature` to `node.codeSnippet`).
+  - '*   Correcting type imports (e.g., `CodeNodeVisibility as Visibility`).'
+  - >-
+    These changes will bring both packages into alignment, resolving all the
+    reported TypeScript errors.
+  - '---'
+  - First, I'll update the `repograph` library.
+  - '---'
+  - >-
+    Now, I will update the `scn-ts` project to align with the updated
+    `repograph` library.
+  - >-
+    These changes should resolve all the build errors and make the `scn-ts` tool
+    functional again.
+operations:
+  - type: write
+    path: repograph/src/types.ts
+    content: |-
+      --- repograph/src/types.ts
+      +++ repograph/src/types.ts
+      @@ -28,6 +28,9 @@
+         | 'html_element'
+         | 'css_rule';
+       
+      +/** For CSS nodes, a semantic grouping of its properties. */
+      +export type CssIntent = 'layout' | 'typography' | 'appearance';
+      +
+       /** New type for access modifiers. */
+       export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+       
+      @@ -53,13 +56,15 @@
+         /** An array of parameters for functions/methods. */
+         readonly parameters?: { name: string; type?: string }[];
+         /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+      -  readonly canThrow?: boolean;
+      +  readonly canThrow?: boolean; // Populated by analyzer
+         /** Whether a function is believed to be pure. Maps to SCN 'o' */
+      -  readonly isPure?: boolean;
+      +  readonly isPure?: boolean; // Not implemented yet
+         /** For UI nodes, the HTML tag name (e.g., 'div'). */
+         readonly htmlTag?: string;
+         /** For UI nodes, a map of attributes. */
+      -  readonly attributes?: ReadonlyMap<string, string>;
+      +  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
+         /** For CSS nodes, the full selector. */
+         readonly cssSelector?: string;
+      +  /** For CSS rules, a list of semantic intents. */
+      +  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
+       };
+       
+       /** Represents a directed relationship between two CodeNodes. Immutable. */
+    patchStrategy: new-unified
+  - type: write
+    path: repograph/src/high-level.ts
+    content: >-
+      import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+      import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+      import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+      import { createMarkdownRenderer } from './pipeline/render.js';
+
+      import type { RepoGraphOptions, Ranker, RankedCodeGraph } from
+      './types.js';
+
+      import path from 'node:path';
+
+      import { logger } from './utils/logger.util.js';
+
+      import { writeFile } from './utils/fs.util.js';
+
+      import { RepoGraphError } from './utils/error.util.js';
+
+
+      const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy']
+      = 'pagerank'): Ranker => {
+        if (rankingStrategy === 'git-changes') {
+          return createGitRanker();
+        }
+        if (rankingStrategy === 'pagerank') {
+          return createPageRanker();
+        }
+        throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+      };
+
+
+      /**
+       * A mid-level API for programmatically generating and receiving the code graph
+       * without rendering it to a file. Ideal for integration with other tools.
+       *
+       * @param options The configuration object for generating the map.
+       * @returns The generated `RankedCodeGraph`.
+       */
+      export const analyzeProject = async (options: RepoGraphOptions = {}):
+      Promise<RankedCodeGraph> => {
+        const {
+          root = process.cwd(),
+          logLevel = 'info',
+          include,
+          ignore,
+          noGitignore,
+        } = options;
+
+        if (logLevel) {
+          logger.setLevel(logLevel);
+        }
+
+        try {
+          const ranker = selectRanker(options.rankingStrategy);
+
+          logger.info('1/3 Discovering files...');
+          const discoverer = createDefaultDiscoverer();
+          const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
+          logger.info(`  -> Found ${files.length} files to analyze.`);
+
+          logger.info('2/3 Analyzing code and building graph...');
+          const analyzer = createTreeSitterAnalyzer();
+          const graph = await analyzer(files);
+          logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
+
+          logger.info('3/3 Ranking graph nodes...');
+          const rankedGraph = await ranker(graph);
+          logger.info('  -> Ranking complete.');
+
+          return rankedGraph;
+        } catch (error) {
+          throw new RepoGraphError(`Failed to analyze project`, error);
+        }
+      };
+
+
+      /**
+       * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+       * default pipeline based on a configuration object to generate a codemap.
+       *
+       * @param options The configuration object for generating the map.
+       */
+      export const generateMap = async (options: RepoGraphOptions = {}):
+      Promise<void> => {
+        const {
+          root = process.cwd(),
+          output = './repograph.md',
+        } = options;
+
+        try {
+          // We get the full ranked graph first
+          const rankedGraph = await analyzeProject(options);
+
+          logger.info('4/4 Rendering output...');
+          const renderer = createMarkdownRenderer();
+          const markdown = renderer(rankedGraph, options.rendererOptions);
+          logger.info('  -> Rendering complete.');
+
+          const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
+
+          logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
+          await writeFile(outputPath, markdown);
+          logger.info('  -> Report saved.');
+        } catch (error) {
+          // The underlying `analyzeProject` already wraps the error, so we just re-throw.
+          throw error;
+        }
+      };
+    patchStrategy: replace
+  - type: write
+    path: repograph/src/index.ts
+    content: >-
+      --- repograph/src/index.ts
+
+      +++ repograph/src/index.ts
+
+      @@ -1,11 +1,11 @@
+       #!/usr/bin/env bun
+       
+       import { logger } from './utils/logger.util.js';
+       import { RepoGraphError } from './utils/error.util.js';
+       // High-Level API for simple use cases
+      -import { generateMap as executeGenerateMap } from './high-level.js';
+
+      +import { generateMap as executeGenerateMap, analyzeProject } from
+      './high-level.js';
+       import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+       
+      -export { generateMap } from './high-level.js';
+
+      +export { generateMap, analyzeProject } from './high-level.js';
+       
+       // Low-Level API for composition and advanced use cases
+       export { createMapGenerator } from './composer.js';
+      @@ -29,6 +29,7 @@
+         RepoGraphOptions,
+         RendererOptions,
+         FileDiscoverer,
+      +  CssIntent,
+         Analyzer,
+         Ranker,
+         Renderer,
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: >-
+      import { analyzeProject } from 'repograph';
+
+      import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
+
+      import { serializeGraph } from './serializer';
+
+
+      /**
+       * Configuration options for generating an SCN map.
+       * These options are passed to the underlying `repograph` engine.
+       */
+      export interface ScnTsConfig {
+        /** Glob patterns for files to include. */
+        include: string[];
+        /** Glob patterns for files to exclude. */
+        exclude?: string[];
+        /** Path to the project's tsconfig.json. (Not currently used by repograph) */
+        project?: string;
+        /** (Future) An array of language parser plugins. */
+        // plugins?: unknown[];
+      }
+
+
+      /**
+       * High-level API to generate an SCN context map from a project.
+       * 
+       * This function orchestrates the entire process:
+       * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
+       * 2. Serializes the resulting graph into the SCN text format.
+       *
+       * @param config - The configuration specifying which files to analyze.
+       * @returns A promise that resolves to the SCN map as a string.
+       */
+      export const generateScn = async (config: ScnTsConfig): Promise<string> =>
+      {
+        // 1. repograph analyzes the project and returns a structured graph.
+        const repoGraphOptions: RepoGraphOptions = {
+          include: config.include,
+          ignore: config.exclude,
+          // We can set other repograph options here if needed, e.g. rankingStrategy
+        };
+        const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+
+        // 2. scn-ts serializes that graph into the SCN text format.
+        const scnOutput = serializeGraph(graph);
+        return scnOutput;
+      };
+    patchStrategy: replace
+  - type: write
+    path: src/serializer.ts
+    content: >-
+      import type {
+        RankedCodeGraph,
+        CodeNode,
+        CodeEdge,
+        CodeNodeVisibility as Visibility,
+        CssIntent,
+        CodeNodeType,
+      } from 'repograph';
+
+
+      type ScnSymbol = '◇' | '~' | '@' | '{}' | '☰' | '=:' | '⛶' | '¶' | '?';
+
+      type QualifierSymbol = '+' | '-' | '...' | '!' | 'o';
+
+      type CssIntentSymbol = '📐' | '✍' | '💧';
+
+
+      const ENTITY_TYPE_TO_SYMBOL: Record<string, ScnSymbol | undefined> = {
+        class: '◇',
+        function: '~',
+        method: '~',
+        interface: '{}',
+        enum: '☰',
+        type: '=:',
+        html_element: '⛶',
+        css_rule: '¶',
+        // SCN doesn't have dedicated symbols for all repograph types.
+        // We map them to the closest SCN concept or let them default to '?'.
+        namespace: '◇',
+        struct: '◇',
+        property: '@',
+        field: '@',
+        variable: '@',
+        constant: '@',
+        arrow_function: '~',
+        constructor: '~',
+        // These have no direct mapping, will become '?'
+        file: undefined,
+        trait: undefined,
+        impl: undefined,
+        static: undefined,
+        union: undefined,
+        template: undefined,
+      };
+
+
+      const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+        layout: '📐',
+        typography: '✍',
+        appearance: '💧',
+      };
+
+
+      const getVisibilitySymbol = (visibility?: Visibility): '+' | '-' |
+      undefined => {
+        if (visibility === 'public') return '+';
+        if (visibility === 'private') return '-';
+        return undefined;
+      };
+
+
+      const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+        return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+      };
+
+
+      const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+        const qualifiers: QualifierSymbol[] = [];
+        const visibilitySymbol = getVisibilitySymbol(node.visibility);
+        if (visibilitySymbol) {
+          qualifiers.push(visibilitySymbol);
+        }
+        if (node.isAsync) {
+          qualifiers.push('...');
+        }
+        if (node.canThrow) {
+          qualifiers.push('!');
+        }
+        if (node.isPure) {
+          qualifiers.push('o');
+        }
+        return qualifiers;
+      };
+
+
+      const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
+        if (intents.length === 0) return '';
+        const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+        return `{ ${symbols.join(' ')} }`;
+      };
+
+
+      const formatNodeId = (node: CodeNode): string => `(${node.id})`;
+
+
+      const formatSignature = (node: CodeNode): string => {
+        if (node.codeSnippet) {
+          return node.codeSnippet;
+        }
+        return node.type === 'css_rule' && node.cssIntents
+          ? formatCssIntents(node.cssIntents)
+          : '';
+      };
+
+
+      const formatNode = (node: CodeNode, allEdges: readonly CodeEdge[]):
+      string[] => {
+        const symbol = getNodeSymbol(node);
+        const qualifiers = getQualifiers(node);
+        const name = node.name;
+        const signature = formatSignature(node);
+        const id = formatNodeId(node);
+
+        const mainLine = [
+          '  ', // Indentation
+          ...qualifiers,
+          symbol,
+          id,
+          name,
+          signature,
+        ].filter(p => p).join(' ');
+        
+        const dependencyLines = allEdges
+          .filter(edge => edge.fromId === node.id)
+          .map(edge => `    -> (${edge.toId})`);
+
+        const callerLines = allEdges
+          .filter(edge => edge.toId === node.id)
+          .map(edge => `    <- (${edge.fromId})`);
+
+        return [mainLine, ...dependencyLines, ...callerLines];
+      };
+
+
+      const getFileDependencies = (fileNode: CodeNode, allEdges: readonly
+      CodeEdge[]): string[] => {
+        return allEdges
+          .filter(edge => edge.type === 'imports' && edge.fromId === fileNode.id)
+          .map(edge => `  -> (${edge.toId})`);
+      };
+
+
+      const getFileCallers = (fileNode: CodeNode, allEdges: readonly
+      CodeEdge[]): string[] => {
+        return allEdges
+          .filter(edge => edge.type === 'imports' && edge.toId === fileNode.id)
+          .map(edge => `  <- (${edge.fromId})`);
+      };
+
+
+      const serializeFile = (
+        fileNode: CodeNode,
+        symbols: readonly CodeNode[],
+        allEdges: readonly CodeEdge[]
+      ): string => {
+        const header = `§ (${fileNode.id}) ${fileNode.filePath}`;
+        
+        const fileDependencies = getFileDependencies(fileNode, allEdges);
+        const fileCallers = getFileCallers(fileNode, allEdges);
+
+        const nodeLines = symbols.flatMap(node => formatNode(node, allEdges));
+
+        return [header, ...fileDependencies, ...fileCallers, ...nodeLines].join('\n');
+      };
+
+
+      /**
+       * Serializes a RankedCodeGraph into the SCN text format.
+       * This function is the core rendering layer of `scn-ts`.
+       *
+       * @param graph The `RankedCodeGraph` produced by `repograph`.
+       * @returns A string containing the full SCN map.
+       */
+      export const serializeGraph = (graph: RankedCodeGraph): string => {
+        const nodesByFile = new Map<string, CodeNode[]>();
+        const fileNodes: CodeNode[] = [];
+
+        for (const node of graph.nodes.values()) {
+          if (node.type === 'file') {
+            fileNodes.push(node);
+          } else {
+            if (!nodesByFile.has(node.filePath)) {
+              nodesByFile.set(node.filePath, []);
+            }
+            nodesByFile.get(node.filePath)!.push(node);
+          }
+        }
+
+        // SCN spec prefers sorting by a numeric ID, but repograph uses string IDs (paths).
+        // We'll sort by path for consistent output.
+        const sortedFileNodes = fileNodes.sort((a, b) => a.id.localeCompare(b.id));
+        
+        const scnParts = sortedFileNodes.map(fileNode => {
+          const symbols = nodesByFile.get(fileNode.filePath) || [];
+          symbols.sort((a,b) => a.startLine - b.startLine);
+          return serializeFile(fileNode, symbols, graph.edges);
+        });
+
+        return scnParts.join('\n\n');
+      };
+    patchStrategy: replace
+snapshot:
+  repograph/src/types.ts: >-
+    // Core Data Structures
+
+
+    /** Represents a single file read from disk. Immutable. */
+
+    export type FileContent = {
+      readonly path: string;
+      readonly content: string;
+    };
+
+
+    /** The type of a symbol identified in the code. */
+
+    export type CodeNodeType =
+      | 'file'
+      | 'class'
+      | 'function'
+      | 'interface'
+      | 'variable'
+      | 'type'
+      | 'arrow_function'
+      | 'method'
+      | 'field'
+      | 'struct'
+      | 'enum'
+      | 'namespace'
+      | 'trait'
+      | 'impl'
+      | 'constructor'
+      | 'property'
+      | 'constant'
+      | 'static'
+      | 'union'
+      | 'template'
+      | 'html_element'
+      | 'css_rule';
+
+    /** New type for access modifiers. */
+
+    export type CodeNodeVisibility = 'public' | 'private' | 'protected' |
+    'internal' | 'default';
+
+
+    /** Represents a single, identifiable symbol (or a file) in the code.
+    Immutable. */
+
+    export type CodeNode = {
+      readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
+      readonly type: CodeNodeType;
+      readonly name: string; // e.g., 'MyClass'
+      readonly filePath: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly language?: string; // For file nodes, the detected language
+      readonly codeSnippet?: string; // e.g., function signature
+
+      // --- NEW FIELDS from scn-ts report ---
+      /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
+      readonly visibility?: CodeNodeVisibility;
+      /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
+      readonly isAsync?: boolean;
+      /** Whether the symbol is a static member of a class/struct. */
+      readonly isStatic?: boolean;
+      /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
+      readonly returnType?: string;
+      /** An array of parameters for functions/methods. */
+      readonly parameters?: { name: string; type?: string }[];
+      /** Whether a function is known to throw exceptions. Maps to SCN '!' */
+      readonly canThrow?: boolean;
+      /** Whether a function is believed to be pure. Maps to SCN 'o' */
+      readonly isPure?: boolean;
+      /** For UI nodes, the HTML tag name (e.g., 'div'). */
+      readonly htmlTag?: string;
+      /** For UI nodes, a map of attributes. */
+      readonly attributes?: ReadonlyMap<string, string>;
+      /** For CSS nodes, the full selector. */
+      readonly cssSelector?: string;
+    };
+
+
+    /** Represents a directed relationship between two CodeNodes. Immutable. */
+
+    export type CodeEdge = {
+      readonly fromId: string; // ID of the source CodeNode
+      readonly toId: string;   // ID of the target CodeNode
+      readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
+    };
+
+
+    /** The complete, raw model of the repository's structure. Immutable. */
+
+    export type CodeGraph = {
+      readonly nodes: ReadonlyMap<string, CodeNode>;
+      readonly edges: readonly CodeEdge[];
+    };
+
+
+    /** A CodeGraph with an added 'rank' score for each node. Immutable. */
+
+    export type RankedCodeGraph = CodeGraph & {
+      readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
+    };
+
+
+    /** The output of a map generation process, containing the graph and
+    rendered output. */
+
+    export type RepoGraphMap = {
+      readonly graph: RankedCodeGraph;
+      readonly markdown: string;
+    };
+
+
+    // High-Level API Options
+
+
+    /** Configuration for the final Markdown output. */
+
+    export type RendererOptions = {
+      /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
+      readonly customHeader?: string;
+      /** Include the default `RepoGraph` header. @default true */
+      readonly includeHeader?: boolean;
+      /** Include the project overview section. @default true */
+      readonly includeOverview?: boolean;
+      /** Include a Mermaid.js dependency graph. @default true */
+      readonly includeMermaidGraph?: boolean;
+      /** Include the list of top-ranked files. @default true */
+      readonly includeFileList?: boolean;
+      /** Number of files to show in the top list. @default 10 */
+      readonly topFileCount?: number;
+      /** Include detailed breakdowns for each symbol. @default true */
+      readonly includeSymbolDetails?: boolean;
+      /** String to use as a separator between file sections. @default '---' */
+      readonly fileSectionSeparator?: string;
+
+      /** Options for how individual symbols are rendered */
+      readonly symbolDetailOptions?: {
+        /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
+        readonly includeRelations?: boolean;
+        /** Include the starting line number. @default true */
+        readonly includeLineNumber?: boolean;
+        /** Include the code snippet for the symbol. @default true */
+        readonly includeCodeSnippet?: boolean;
+        /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
+        readonly maxRelationsToShow?: number;
+      };
+    };
+
+
+    /** Configuration options for the main `generateMap` function. */
+
+    export type RepoGraphOptions = {
+      /** Root directory to analyze. @default process.cwd() */
+      readonly root?: string;
+      /** Output path for the Markdown file. @default './repograph.md' */
+      readonly output?: string;
+      /** Glob patterns for files to include. */
+      readonly include?: readonly string[];
+      /** Glob patterns for files to exclude. */
+      readonly ignore?: readonly string[];
+      /** Disables the use of .gitignore. @default false */
+      readonly noGitignore?: boolean;
+      /** The ranking strategy to use. @default 'pagerank' */
+      readonly rankingStrategy?: 'pagerank' | 'git-changes';
+      /** Configuration for the final Markdown output. */
+      readonly rendererOptions?: RendererOptions;
+      /** Logging level. @default 'info' */
+      readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+    };
+
+
+    // Low-Level Functional Pipeline Contracts
+
+
+    /** Discovers files and returns their content. */
+
+    export type FileDiscoverer = (config: {
+      readonly root: string;
+      readonly include?: readonly string[];
+      readonly ignore?: readonly string[];
+      readonly noGitignore?: boolean;
+    }) => Promise<readonly FileContent[]>;
+
+
+    /** Analyzes file content and builds the dependency graph. */
+
+    export type Analyzer = (files: readonly FileContent[]) =>
+    Promise<CodeGraph>;
+
+
+    /** Ranks the nodes in a graph. */
+
+    export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
+
+
+    /** Renders a ranked graph into a string format. */
+
+    export type Renderer = (rankedGraph: RankedCodeGraph, options?:
+    RendererOptions) => string;
+  repograph/src/high-level.ts: >-
+    import { createMapGenerator } from './composer.js';
+
+    import { createDefaultDiscoverer } from './pipeline/discover.js';
+
+    import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+
+    import { createPageRanker, createGitRanker } from './pipeline/rank.js';
+
+    import { createMarkdownRenderer } from './pipeline/render.js';
+
+    import type { RepoGraphOptions, Ranker } from './types.js';
+
+    import path from 'node:path';
+
+    import { logger } from './utils/logger.util.js';
+
+
+    /**
+     * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
+     * default pipeline based on a configuration object to generate a codemap.
+     *
+     * @param options The configuration object for generating the map.
+     */
+    export const generateMap = async (options: RepoGraphOptions = {}):
+    Promise<void> => {
+      const {
+        root = process.cwd(),
+        output = './repograph.md',
+        rankingStrategy = 'pagerank',
+        logLevel = 'info',
+      } = options;
+
+      if (logLevel) {
+        logger.setLevel(logLevel);
+      }
+
+      let ranker: Ranker;
+      if (rankingStrategy === 'git-changes') {
+        ranker = createGitRanker();
+      } else if (rankingStrategy === 'pagerank') {
+        ranker = createPageRanker();
+      } else {
+        throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
+      }
+
+      const generator = createMapGenerator({
+        discover: createDefaultDiscoverer(),
+        analyze: createTreeSitterAnalyzer(),
+        rank: ranker,
+        render: createMarkdownRenderer(),
+      });
+
+      try {
+        await generator({
+          root: path.resolve(root),
+          output: output,
+          include: options.include,
+          ignore: options.ignore,
+          noGitignore: options.noGitignore,
+          rendererOptions: options.rendererOptions,
+        });
+      } catch (error) {
+        throw error; // Re-throw to ensure errors propagate properly
+      }
+    };
+  repograph/src/index.ts: |-
+    #!/usr/bin/env bun
+
+    import { logger } from './utils/logger.util.js';
+    import { RepoGraphError } from './utils/error.util.js';
+    // High-Level API for simple use cases
+    import { generateMap as executeGenerateMap } from './high-level.js';
+    import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
+
+    export { generateMap } from './high-level.js';
+
+    // Low-Level API for composition and advanced use cases
+    export { createMapGenerator } from './composer.js';
+
+    // Default pipeline component factories
+    export { createDefaultDiscoverer } from './pipeline/discover.js';
+    export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
+    export { createPageRanker, createGitRanker } from './pipeline/rank.js';
+    export { createMarkdownRenderer } from './pipeline/render.js';
+
+    // Core types for building custom components
+    export type {
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeNodeVisibility,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphMap,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      Analyzer,
+      Ranker,
+      Renderer,
+    } from './types.js';
+
+    // This section runs only when the script is executed directly from the CLI
+    import { fileURLToPath } from 'node:url';
+    import path from 'node:path';
+
+    const isRunningDirectly = () => {
+      if (typeof process.argv[1] === 'undefined') return false;
+      const runningFile = path.resolve(process.argv[1]);
+      const currentFile = fileURLToPath(import.meta.url);
+      return runningFile === currentFile;
+    };
+
+    if (isRunningDirectly()) {
+      (async () => {
+      const args = process.argv.slice(2);
+
+      if (args.includes('--help') || args.includes('-h')) {
+        console.log(`
+    Usage: repograph [root] [options]
+
+    Arguments:
+      root                     The root directory of the repository to analyze. Defaults to the current working directory.
+
+    Options:
+      -h, --help               Display this help message.
+      -v, --version            Display the version number.
+      --output <path>          Path to the output Markdown file. (default: "repograph.md")
+      --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
+      --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
+      --no-gitignore           Do not respect .gitignore files.
+      --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
+      --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
+
+    Output Formatting:
+      --no-header              Do not include the main "RepoGraph" header.
+      --no-overview            Do not include the project overview section.
+      --no-mermaid             Do not include the Mermaid dependency graph.
+      --no-file-list           Do not include the list of top-ranked files.
+      --no-symbol-details      Do not include the detailed file and symbol breakdown.
+      --top-file-count <num>   Set the number of files in the top list. (default: 10)
+      --file-section-separator <str> Custom separator for file sections. (default: "---")
+      --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
+      --no-symbol-line-numbers Hide line numbers for symbols.
+      --no-symbol-snippets     Hide code snippets for symbols.
+      --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
+        `);
+        process.exit(0);
+      }
+
+      if (args.includes('--version') || args.includes('-v')) {
+        // In a real app, you'd get this from package.json
+        logger.info('0.1.0');
+        process.exit(0);
+      }
+
+      // We need a mutable version of the options to build it from arguments.
+      const options: {
+        root?: string;
+        output?: string;
+        include?: readonly string[];
+        ignore?: readonly string[];
+        noGitignore?: boolean;
+        rankingStrategy?: 'pagerank' | 'git-changes';
+        logLevel?: IRepoGraphOptions['logLevel'];
+        rendererOptions?: IRepoGraphOptions['rendererOptions'];
+      } = {};
+      const includePatterns: string[] = [];
+      const ignorePatterns: string[] = [];
+      // We need a mutable version of rendererOptions to build from CLI args
+      const rendererOptions: {
+        customHeader?: string;
+        includeHeader?: boolean;
+        includeOverview?: boolean;
+        includeMermaidGraph?: boolean;
+        includeFileList?: boolean;
+        topFileCount?: number;
+        includeSymbolDetails?: boolean;
+        fileSectionSeparator?: string;
+        symbolDetailOptions?: {
+          includeRelations?: boolean;
+          includeLineNumber?: boolean;
+          includeCodeSnippet?: boolean;
+          maxRelationsToShow?: number;
+        };
+      } = {};
+
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (!arg) {
+          continue;
+        }
+        switch (arg) {
+          case '--output':
+            options.output = args[++i];
+            break;
+          case '--include':
+            includePatterns.push(args[++i] as string);
+            break;
+          case '--ignore':
+            ignorePatterns.push(args[++i] as string);
+            break;
+          case '--no-gitignore':
+            options.noGitignore = true;
+            break;
+          case '--ranking-strategy':
+            options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
+            break;
+          case '--log-level':
+            options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
+            break;
+          // --- Renderer Options ---
+          case '--no-header':
+            rendererOptions.includeHeader = false;
+            break;
+          case '--no-overview':
+            rendererOptions.includeOverview = false;
+            break;
+          case '--no-mermaid':
+            rendererOptions.includeMermaidGraph = false;
+            break;
+          case '--no-file-list':
+            rendererOptions.includeFileList = false;
+            break;
+          case '--no-symbol-details':
+            rendererOptions.includeSymbolDetails = false;
+            break;
+          case '--top-file-count':
+            rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
+            break;
+          case '--file-section-separator':
+            rendererOptions.fileSectionSeparator = args[++i];
+            break;
+          case '--no-symbol-relations':
+            rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
+            break;
+          case '--no-symbol-line-numbers':
+            rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
+            break;
+          case '--no-symbol-snippets':
+            rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
+            break;
+          case '--max-relations-to-show':
+            rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
+            break;
+          default:
+            if (!arg.startsWith('-')) {
+              options.root = arg;
+            }
+            break;
+        }
+      }
+
+      if (includePatterns.length > 0) {
+        options.include = includePatterns;
+      }
+      if (ignorePatterns.length > 0) {
+        options.ignore = ignorePatterns;
+      }
+      if (Object.keys(rendererOptions).length > 0) {
+        options.rendererOptions = rendererOptions;
+      }
+
+      const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
+
+      logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
+      
+      try {
+        await executeGenerateMap(options);
+        const relativePath = path.relative(process.cwd(), finalOutput);
+        logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
+      } catch (error: unknown) {
+        if (error instanceof RepoGraphError) {
+          logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
+        } else {
+          logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
+        }
+        process.exit(1);
+      }
+      })().catch((error) => {
+        console.error('Fatal error:', error);
+        process.exit(1);
+      });
+    }
+  src/index.ts: |-
+    import { analyzeProject } from 'repograph';
+    import type { RankedCodeGraph } from 'repograph';
+    import { serializeGraph } from './serializer';
+
+    /**
+     * Configuration options for generating an SCN map.
+     * These options are passed to the underlying `repograph` engine.
+     */
+    export interface ScnTsConfig {
+      /** Glob patterns for files to include. */
+      include: string[];
+      /** Glob patterns for files to exclude. */
+      exclude?: string[];
+      /** Path to the project's tsconfig.json. */
+      project?: string;
+      /** (Future) An array of language parser plugins. */
+      // plugins?: unknown[];
+    }
+
+    /**
+     * High-level API to generate an SCN context map from a project.
+     * 
+     * This function orchestrates the entire process:
+     * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
+     * 2. Serializes the resulting graph into the SCN text format.
+     *
+     * @param config - The configuration specifying which files to analyze.
+     * @returns A promise that resolves to the SCN map as a string.
+     */
+    export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+      // 1. repograph analyzes the project and returns a structured graph.
+      // We are assuming `repograph` has an `analyzeProject` function that takes a similar config.
+      const graph: RankedCodeGraph = await analyzeProject(config);
+
+      // 2. scn-ts serializes that graph into the SCN text format.
+      const scnOutput = serializeGraph(graph);
+      return scnOutput;
+    };
+  src/serializer.ts: >-
+    import type {
+      RankedCodeGraph,
+      CodeFile,
+      CodeNode,
+      CodeEdge,
+      Visibility,
+      CssIntent,
+    } from 'repograph';
+
+
+    type ScnSymbol = '◇' | '~' | '@' | '{}' | '☰' | '=:' | '⛶' | '¶';
+
+    type QualifierSymbol = '+' | '-' | '...' | '!' | 'o';
+
+    type CssIntentSymbol = '📐' | '✍' | '💧';
+
+
+    const ENTITY_TYPE_TO_SYMBOL: Record<string, ScnSymbol> = {
+      class: '◇',
+      module: '◇',
+      namespace: '◇',
+      struct: '◇',
+      function: '~',
+      method: '~',
+      property: '@',
+      field: '@',
+      variable: '@',
+      const: '@',
+      interface: '{}',
+      enum: '☰',
+      type_alias: '=:',
+      html_element: '⛶',
+      css_rule: '¶',
+    };
+
+
+    const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+      layout: '📐',
+      typography: '✍',
+      appearance: '💧',
+    };
+
+
+    const getVisibilitySymbol = (visibility: Visibility): '+' | '-' | undefined
+    => {
+      if (visibility === 'public') return '+';
+      if (visibility === 'private') return '-';
+      return undefined;
+    };
+
+
+    const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+      return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+    };
+
+
+    const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+      const qualifiers: QualifierSymbol[] = [];
+      const visibilitySymbol = getVisibilitySymbol(node.visibility);
+      if (visibilitySymbol) {
+        qualifiers.push(visibilitySymbol);
+      }
+      if (node.isAsync) {
+        qualifiers.push('...');
+      }
+      if (node.canThrow) {
+        qualifiers.push('!');
+      }
+      if (node.isPure) {
+        qualifiers.push('o');
+      }
+      return qualifiers;
+    };
+
+
+    const formatCssIntents = (intents: CssIntent[] = []): string => {
+      if (intents.length === 0) return '';
+      const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+      return `{ ${symbols.join(' ')} }`;
+    };
+
+
+    const formatNodeId = (node: CodeNode): string => `(${node.id})`;
+
+
+    const formatSignature = (node: CodeNode): string => {
+      if (node.signature) {
+        return node.signature;
+      }
+      return node.type === 'css_rule' && node.cssIntents
+        ? formatCssIntents(node.cssIntents)
+        : '';
+    };
+
+
+    const formatNode = (node: CodeNode, allEdges: readonly CodeEdge[]): string[]
+    => {
+      const symbol = getNodeSymbol(node);
+      const qualifiers = getQualifiers(node);
+      const name = node.name;
+      const signature = formatSignature(node);
+      const id = formatNodeId(node);
+
+      const mainLine = [
+        '  ', // Indentation
+        ...qualifiers,
+        symbol,
+        id,
+        name,
+        signature,
+      ].filter(p => p).join(' ');
+      
+      const dependencyLines = allEdges
+        .filter(edge => edge.source === node.id)
+        .map(edge => `    -> (${edge.target})`);
+
+      const callerLines = allEdges
+        .filter(edge => edge.target === node.id)
+        .map(edge => `    <- (${edge.source})`);
+
+      return [mainLine, ...dependencyLines, ...callerLines];
+    };
+
+
+    const getFileDependencies = (file: CodeFile, allEdges: readonly CodeEdge[]):
+    string[] => {
+      return allEdges
+        .filter(edge => edge.source === String(file.id))
+        .map(edge => `  -> (${edge.target})`);
+    };
+
+
+    const getFileCallers = (file: CodeFile, allEdges: readonly CodeEdge[]):
+    string[] => {
+      return allEdges
+        .filter(edge => edge.target === String(file.id))
+        .map(edge => `  <- (${edge.source})`);
+    };
+
+
+    const serializeFile = (file: CodeFile, allEdges: readonly CodeEdge[]):
+    string => {
+      const header = `§ (${file.id}) ${file.path}`;
+      
+      const fileDependencies = getFileDependencies(file, allEdges);
+      const fileCallers = getFileCallers(file, allEdges);
+
+      const nodeLines = file.nodes.flatMap(node => formatNode(node, allEdges));
+
+      return [header, ...fileDependencies, ...fileCallers, ...nodeLines].join('\n');
+    };
+
+
+    /**
+     * Serializes a RankedCodeGraph into the SCN text format.
+     * This function is the core rendering layer of `scn-ts`.
+     *
+     * @param graph The `RankedCodeGraph` produced by `repograph`.
+     * @returns A string containing the full SCN map.
+     */
+    export const serializeGraph = (graph: RankedCodeGraph): string => {
+      // According to SCN spec, files are sorted by their integer ID
+      const sortedFiles = [...graph.files].sort((a, b) => a.id - b.id);
+      
+      const scnParts = sortedFiles.map(file => serializeFile(file, graph.edges));
+
+      return scnParts.join('\n\n');
+    };
+approved: true
