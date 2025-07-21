@@ -1,0 +1,86 @@
+uuid: f4c2174c-4e89-49e0-8356-d4464c23c72b
+projectId: scn-ts
+createdAt: '2025-07-21T02:18:33.297Z'
+linesAdded: 3
+linesRemoved: 2
+gitCommitMsg: 'build(tsconfig): specify include and exclude paths'
+promptSummary: >-
+  Update tsconfig.json to include src and test directories and exclude build
+  output directories.
+reasoning:
+  - >-
+    Of course. Here is the patch to update your `tsconfig.json` to explicitly
+    include the `src` and `test` directories while excluding build artifacts.
+  - >-
+    I will add `include` and `exclude` arrays to the `tsconfig.json` file to
+    give the TypeScript compiler explicit instructions on which files to
+    process, improving project configuration clarity.
+  - '---'
+operations:
+  - type: write
+    path: tsconfig.json
+    content: |-
+      {
+        "compilerOptions": {
+          // Environment setup & latest features
+          "lib": ["ESNext"],
+          "target": "ESNext",
+          "module": "Preserve",
+          "moduleDetection": "force",
+          "jsx": "react-jsx",
+          "allowJs": true,
+
+          // Bundler mode
+          "moduleResolution": "bundler",
+          "allowImportingTsExtensions": true,
+          "verbatimModuleSyntax": true,
+          "noEmit": true,
+
+          // Best practices
+          "strict": true,
+          "skipLibCheck": true,
+          "noFallthroughCasesInSwitch": true,
+          "noUncheckedIndexedAccess": true,
+          "noImplicitOverride": true,
+
+          // Some stricter flags (disabled by default)
+          "noUnusedLocals": false,
+          "noUnusedParameters": false,
+          "noPropertyAccessFromIndexSignature": false
+        },
+        "include": ["src", "test"],
+        "exclude": ["node_modules", "dist"]
+      }
+    patchStrategy: replace
+snapshot:
+  tsconfig.json: |
+    {
+      "compilerOptions": {
+        // Environment setup & latest features
+        "lib": ["ESNext"],
+        "target": "ESNext",
+        "module": "Preserve",
+        "moduleDetection": "force",
+        "jsx": "react-jsx",
+        "allowJs": true,
+
+        // Bundler mode
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "noEmit": true,
+
+        // Best practices
+        "strict": true,
+        "skipLibCheck": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+
+        // Some stricter flags (disabled by default)
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
+        "noPropertyAccessFromIndexSignature": false
+      }
+    }
+approved: true

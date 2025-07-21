@@ -1,0 +1,1024 @@
+uuid: c62f0269-813d-4c31-9a7c-a49658e47087
+projectId: scn-ts
+createdAt: '2025-07-21T02:16:04.829Z'
+linesAdded: 368
+linesRemoved: 74
+gitCommitMsg: 'fix(serializer): correct link formatting and improve test robustness'
+promptSummary: >-
+  Correct the previously generated patches for implementing tests for SCN
+  generation (sections 1.1-1.3), fixing bugs in the serializer and improving
+  test case clarity.
+reasoning:
+  - >-
+    Of course. It appears my previous response contained logical errors in the
+    serializer and some ambiguous test cases. I have corrected the serializer
+    logic to handle caller links correctly and have made the tests more specific
+    and robust to ensure they accurately reflect the requirements in
+    `test.plan.md`.
+  - Here are the corrected patches.
+  - First, the test utility file, which is useful for all test suites.
+  - >-
+    Next, here is the corrected implementation for `src/serializer.ts`. This
+    version properly creates numeric IDs, handles caller (`<-`) links,
+    summarizes dependencies in file headers, and formats multi-entity links
+    correctly.
+  - >-
+    This test file covers `1.1. General & Structural Symbols` with more precise
+    assertions.
+  - >-
+    This integration test file for `1.2. Inter-File Dependency Graphs` is now
+    more robust.
+  - >-
+    Finally, this test file covers `1.3. Code Entities`, which was correct
+    before and is included for completeness.
+  - '---'
+operations:
+  - type: write
+    path: test/test.util.ts
+    content: >-
+      import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
+
+      import { tmpdir } from 'os';
+
+      import { join, dirname } from 'path';
+
+
+      export interface TestProject {
+        projectDir: string;
+        cleanup: () => Promise<void>;
+      }
+
+
+      export async function setupTestProject(files: Record<string, string>):
+      Promise<TestProject> {
+        const projectDir = await mkdtemp(join(tmpdir(), 'scn-test-'));
+
+        for (const [relativePath, content] of Object.entries(files)) {
+          const absolutePath = join(projectDir, relativePath);
+          await mkdir(dirname(absolutePath), { recursive: true });
+          await writeFile(absolutePath, content, 'utf-8');
+        }
+
+        const cleanup = async () => {
+          await rm(projectDir, { recursive: true, force: true });
+        };
+
+        return { projectDir, cleanup };
+      }
+    patchStrategy: replace
+  - type: write
+    path: src/serializer.ts
+    content: >-
+      --- src/serializer.ts
+
+      +++ src/serializer.ts
+
+      @@ -1,13 +1,11 @@
+       import type {
+         RankedCodeGraph,
+         CodeNode,
+         CodeEdge,
+         CodeNodeVisibility as Visibility,
+         CssIntent,
+         CodeNodeType,
+      -} from 'repograph';
+
+      -
+
+      -type ScnSymbol = '◇' | '~' | '@' | '{}' | '☰' | '=:' | '⛶' | '¶' | '?';
+
+      -type QualifierSymbol = '+' | '-' | '...' | '!' | 'o';
+
+      -type CssIntentSymbol = '📐' | '✍' | '💧';
+
+      +} from "repograph";
+       
+      -const ENTITY_TYPE_TO_SYMBOL: Record<CodeNodeType, ScnSymbol | undefined>
+      = {
+
+      +type ScnSymbol = "◇" | "~" | "@" | "{}" | "☰" | "=:" | "⛶" | "¶" | "?";
+
+      +type QualifierSymbol = "+" | "-" | "..." | "!" | "o";
+
+      +type CssIntentSymbol = "📐" | "✍" | "💧";
+
+      +
+
+      +const ENTITY_TYPE_TO_SYMBOL: Record<CodeNodeType, ScnSymbol | undefined>
+      = {
+         class: '◇',
+         function: '~',
+         method: '~',
+      @@ -29,121 +27,185 @@
+         template: undefined,
+       };
+       
+      -const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+
+      +const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+         layout: '📐',
+         typography: '✍',
+         appearance: '💧',
+       };
+       
+      +class ScnIdManager {
+
+      +  private fileIdCounter = 1;
+
+      +  private entityIdCounters = new Map<string, number>(); // file path ->
+      counter
+
+      +  private repographIdToScnId = new Map<string, string>();
+
+      +  private fileRepoIdToPath = new Map<string, string>();
+
+      +
+
+      +  constructor(sortedFileNodes: CodeNode[], nodesByFile: Map<string,
+      CodeNode[]>) {
+
+      +    for (const fileNode of sortedFileNodes) {
+
+      +      const fileId = `${this.fileIdCounter++}`;
+
+      +      this.repographIdToScnId.set(fileNode.id, fileId);
+
+      +      this.fileRepoIdToPath.set(fileNode.id, fileNode.filePath);
+
+      +      this.entityIdCounters.set(fileNode.filePath, 1);
+
+      +
+
+      +      const entities = nodesByFile.get(fileNode.filePath) || [];
+
+      +      entities.sort((a, b) => a.startLine - b.startLine);
+
+      +
+
+      +      for (const entityNode of entities) {
+
+      +        const entityCounter =
+      this.entityIdCounters.get(entityNode.filePath)!;
+
+      +        const entityId = `${fileId}.${entityCounter}`;
+
+      +        this.repographIdToScnId.set(entityNode.id, entityId);
+
+      +        this.entityIdCounters.set(entityNode.filePath, entityCounter +
+      1);
+
+      +      }
+
+      +    }
+
+      +  }
+
+      +
+
+      +  getScnId(repographId: string): string | undefined {
+
+      +    return this.repographIdToScnId.get(repographId);
+
+      +  }
+
+      +
+
+      +  isFilePath(repographId: string): boolean {
+
+      +    return this.fileRepoIdToPath.has(repographId);
+
+      +  }
+
+      +}
+
+      +
+       const getVisibilitySymbol = (visibility?: Visibility): '+' | '-' | undefined => {
+         if (visibility === 'public') return '+';
+         if (visibility === 'private') return '-';
+         return undefined;
+       };
+       
+       const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+      +  // Heuristic: Treat uppercase constants/variables as containers (module
+      pattern)
+
+      +  if ((node.type === 'variable' || node.type === 'constant') &&
+      node.name.match(/^[A-Z]/)) {
+
+      +      return '◇';
+
+      +  }
+         return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+       };
+       
+       const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+         const qualifiers: QualifierSymbol[] = [];
+         const visibilitySymbol = getVisibilitySymbol(node.visibility);
+      -  if (visibilitySymbol) {
+
+      -    qualifiers.push(visibilitySymbol);
+
+      -  }
+
+      -  if (node.isAsync) {
+
+      -    qualifiers.push('...');
+
+      -  }
+
+      -  if (node.canThrow) {
+
+      -    qualifiers.push('!');
+
+      -  }
+
+      -  if (node.isPure) {
+
+      -    qualifiers.push('o');
+
+      -  }
+
+      +  if (visibilitySymbol) qualifiers.push(visibilitySymbol);
+
+      +  if (node.isAsync) qualifiers.push('...');
+
+      +  if (node.canThrow) qualifiers.push('!');
+
+      +  if (node.isPure) qualifiers.push('o');
+         return qualifiers;
+       };
+       
+       const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
+         if (intents.length === 0) return '';
+         const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+      -  return `{ ${symbols.join(' ')} }`;
+
+      +  return `{ ${symbols.sort().join(' ')} }`;
+       };
+       
+      -const formatNodeId = (node: CodeNode): string => `(${node.id})`;
+
+      -
+
+      -const formatSignature = (node: CodeNode): string => {
+
+      -  if (node.codeSnippet) {
+
+      -    return node.codeSnippet;
+
+      -  }
+
+      -  return node.type === 'css_rule' && node.cssIntents
+
+      -    ? formatCssIntents(node.cssIntents)
+
+      -    : '';
+
+      -};
+
+      -
+
+      -const formatNode = (node: CodeNode, allEdges: readonly CodeEdge[]):
+      string[] => {
+
+      -  const symbol = getNodeSymbol(node);
+
+      -  const qualifiers = getQualifiers(node);
+
+      -  const name = node.name;
+
+      -  const signature = formatSignature(node);
+
+      -  const id = formatNodeId(node);
+
+      -
+
+      -  const mainLine = [
+
+      -    '  ', // Indentation
+
+      -    ...qualifiers,
+
+      -    symbol,
+
+      -    id,
+
+      -    name,
+
+      -    signature,
+
+      -  ].filter(p => p).join(' ');
+
+      -  
+
+      -  const dependencyLines = allEdges
+
+      -    .filter(edge => edge.fromId === node.id)
+
+      -    .map(edge => `    -> (${edge.toId})`);
+
+      -
+
+      -  const callerLines = allEdges
+
+      -    .filter(edge => edge.toId === node.id)
+
+      -    .map(edge => `    <- (${edge.fromId})`);
+
+      -
+
+      -  return [mainLine, ...dependencyLines, ...callerLines];
+
+      -};
+
+      -
+
+      -const getFileDependencies = (fileNode: CodeNode, allEdges: readonly
+      CodeEdge[]): string[] => {
+
+      -  return allEdges
+
+      -    .filter(edge => edge.type === 'imports' && edge.fromId ===
+      fileNode.id)
+
+      -    .map(edge => `  -> (${edge.toId})`);
+
+      -};
+
+      -
+
+      -const getFileCallers = (fileNode: CodeNode, allEdges: readonly
+      CodeEdge[]): string[] => {
+
+      -  return allEdges
+
+      -    .filter(edge => edge.type === 'imports' && edge.toId === fileNode.id)
+
+      -    .map(edge => `  <- (${edge.fromId})`);
+
+      +const formatSignature = (node: CodeNode): string =>
+
+      +  node.codeSnippet ??
+
+      +  (node.type === 'css_rule' && node.cssIntents
+
+      +    ? formatCssIntents(node.cssIntents) : '');
+
+      +
+
+      +const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager:
+      ScnIdManager): string => {
+
+      +  const symbol = getNodeSymbol(node);
+
+      +  const qualifiers = getQualifiers(node).join('');
+
+      +  const signature = formatSignature(node);
+
+      +  const scnId = idManager.getScnId(node.id);
+
+      +  const id = scnId ? `(${scnId})` : '';
+
+      +
+
+      +  const mainLine = ['  ', qualifiers, symbol, id, node.name, signature]
+
+      +    .filter(p => p).join(' ').trim();
+
+      +
+
+      +  const formatLinks = (prefix: string, edges: readonly CodeEdge[]):
+      string => {
+
+      +    if (edges.length === 0) return '';
+
+      +    const links = edges.map(edge => {
+
+      +      const isCallerLink = prefix === '<-';
+
+      +      const targetRepographId = isCallerLink ? edge.fromId : edge.toId;
+
+      +      const targetNode = graph.nodes.get(targetRepographId);
+
+      +      let targetScnId = idManager.getScnId(targetRepographId);
+
+      +
+
+      +      // Per spec, file-level dependencies use a .0 suffix.
+
+      +      // This applies if the target of the link is a file itself.
+
+      +      if (targetNode?.type === 'file') {
+
+      +        targetScnId = `${targetScnId}.0`;
+
+      +      }
+
+      +      return `(${targetScnId})`;
+
+      +    }).sort().join(', ');
+
+      +    return `\n    ${prefix} ${links}`;
+
+      +  };
+
+      +
+
+      +  const dependencyEdges = graph.edges.filter(edge => edge.fromId ===
+      node.id);
+
+      +  const callerEdges = graph.edges.filter(edge => edge.toId === node.id &&
+      edge.type !== 'imports');
+
+      +
+
+      +  return mainLine + formatLinks('->', dependencyEdges) +
+      formatLinks('<-', callerEdges);
+       };
+       
+       const serializeFile = (
+         fileNode: CodeNode,
+      -  symbols: readonly CodeNode[],
+
+      -  allEdges: readonly CodeEdge[]
+
+      +  symbols: CodeNode[],
+
+      +  graph: RankedCodeGraph,
+
+      +  idManager: ScnIdManager
+       ): string => {
+      -  const header = `§ (${fileNode.id}) ${fileNode.filePath}`;
+
+      -  
+
+      -  const fileDependencies = getFileDependencies(fileNode, allEdges);
+
+      -  const fileCallers = getFileCallers(fileNode, allEdges);
+
+      +  const scnId = idManager.getScnId(fileNode.id) ?? '';
+       
+      -  const nodeLines = symbols.flatMap(node => formatNode(node, allEdges));
+
+      +  const formatFileLinks = (prefix: string, edges: readonly CodeEdge[]):
+      string => {
+
+      +    if (edges.length === 0) return '';
+
+      +    const links = edges.map(edge => {
+
+      +      const targetId = prefix === '->' ? edge.toId : edge.fromId;
+
+      +      const targetScnId = idManager.getScnId(targetId);
+
+      +      return `(${targetScnId}.0)`;
+
+      +    }).sort().join(', ');
+
+      +    return ` ${prefix} ${links}`;
+
+      +  };
+       
+      -  return [header, ...fileDependencies, ...fileCallers,
+      ...nodeLines].join('\n');
+
+      +  const fileDependencies = graph.edges.filter(e => e.type === 'imports'
+      && e.fromId === fileNode.id);
+
+      +  const fileCallers = graph.edges.filter(e => e.type === 'imports' &&
+      e.toId === fileNode.id);
+
+      +
+
+      +  let header = `§ (${scnId}) ${fileNode.filePath}`;
+
+      +  header += formatFileLinks('->', fileDependencies);
+
+      +  header += formatFileLinks('<-', fileCallers);
+
+      +
+
+      +  const nodeLines = symbols.map(node => formatNode(node, graph,
+      idManager));
+
+      +
+
+      +  return [header, ...nodeLines].join('\n');
+       };
+       
+       /**
+        * Serializes a RankedCodeGraph into the SCN text format.
+        * This function is the core rendering layer of `scn-ts`.
+        *
+      - * @param graph The `RankedCodeGraph` produced by `repograph`.
+
+      + * @param graph - The `RankedCodeGraph` produced by `repograph`.
+        * @returns A string containing the full SCN map.
+        */
+       export const serializeGraph = (graph: RankedCodeGraph): string => {
+      -  const nodesByFile = new Map<string, CodeNode[]>();
+
+      +  const nodesByFile = new Map<string, CodeNode[]>(); // filePath -> nodes
+         const fileNodes: CodeNode[] = [];
+       
+         for (const node of graph.nodes.values()) {
+           if (node.type === 'file') {
+             fileNodes.push(node);
+      +      nodesByFile.set(node.filePath, []);
+           } else {
+             if (!nodesByFile.has(node.filePath)) {
+      -        nodesByFile.set(node.filePath, []);
+
+      +        // This case can happen if repograph finds an entity but not its
+      parent file.
+
+      +        // We'll create a dummy map entry, but it won't be processed
+      without a file node.
+
+      +        nodesByFile.set(node.filePath, []); 
+             }
+             nodesByFile.get(node.filePath)!.push(node);
+           }
+         }
+       
+      -  // SCN spec prefers sorting by a numeric ID, but repograph uses string
+      IDs (paths).
+
+      -  // We'll sort by path for consistent output.
+
+      -  const sortedFileNodes = fileNodes.sort((a, b) =>
+      a.id.localeCompare(b.id));
+
+      -  
+
+      +  const sortedFileNodes = fileNodes.sort((a, b) =>
+      a.filePath.localeCompare(b.filePath));
+
+      +  const idManager = new ScnIdManager(sortedFileNodes, nodesByFile);
+
+      +
+         const scnParts = sortedFileNodes.map(fileNode => {
+           const symbols = nodesByFile.get(fileNode.filePath) || [];
+      -    symbols.sort((a,b) => a.startLine - b.startLine);
+
+      -    return serializeFile(fileNode, symbols, graph.edges);
+
+      +    // Sorting is now handled inside the ID manager's constructor to
+      ensure consistent IDs.
+
+      +    return serializeFile(fileNode, symbols, graph, idManager);
+         });
+       
+         return scnParts.join('\n\n');
+       };
+    patchStrategy: new-unified
+  - type: write
+    path: test/ts/unit/general-structural.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.1 General & Structural', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should generate a § file declaration with a unique ID and correct relative path', async () => {
+          project = await setupTestProject({
+            'a.ts': ``,
+            'b.ts': ``,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+
+          expect(scn).toContain('§ (1) a.ts');
+          expect(scn).toContain('§ (2) b.ts');
+        });
+
+        it('should assign unique, incrementing entity IDs within a file, starting from 1', async () => {
+          project = await setupTestProject({
+            'test.ts': `
+              export function funcA() {}
+              export class ClassB {}
+            `,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+
+          expect(scn).toContain('+ ~ (1.1) funcA()');
+          expect(scn).toContain('+ ◇ (1.2) ClassB');
+        });
+
+        it('should represent a side-effect import with a .0 entity ID', async () => {
+          project = await setupTestProject({
+            'a.ts': `import './b.ts';`,
+            'b.ts': `console.log('side effect');`,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          
+          expect(scn).toContain('§ (1) a.ts -> (2.0)');
+          expect(scn).toContain('§ (2) b.ts <- (1.0)');
+        });
+      });
+    patchStrategy: replace
+  - type: write
+    path: test/ts/integration/dependency-graph.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should resolve and add <- annotations to entities that are used by other entities', async () => {
+          project = await setupTestProject({
+            'util.ts': `export function helper() {}`,
+            'main.ts': `import { helper } from './util'; function main() { helper(); }`,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+
+          const utilScn = scn.split('\n\n').find(s => s.includes('util.ts'));
+          expect(utilScn).toBeDefined();
+          // main.ts is file 1, its function 'main' is entity 1.1
+          // util.ts is file 2, its function 'helper' is entity 2.1
+          expect(utilScn).toContain('+ ~ (2.1) helper()\n    <- (1.1)');
+        });
+
+        it('should add a summary of file-level dependencies and callers on the § file declaration line', async () => {
+          project = await setupTestProject({
+            'config.ts': `export const setting = 1;`,
+            'service.ts': `import { setting } from './config'; export const value = setting;`,
+            'main.ts': `import { value } from './service'; console.log(value);`,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          
+          expect(scn).toContain('§ (1) config.ts <- (3.0)');
+          expect(scn).toContain('§ (2) main.ts -> (3.0)');
+          expect(scn).toContain('§ (3) service.ts -> (1.0) <- (2.0)');
+        });
+
+        it('should correctly represent a multi-step dependency chain (A -> B -> C)', async () => {
+          project = await setupTestProject({
+            'c.ts': `export const C = 'c';`,
+            'b.ts': `import { C } from './c'; export const B = C;`,
+            'a.ts': `import { B } from './b'; function run() { console.log(B); }`,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+
+          // File-level links
+          expect(scn).toContain('§ (1) a.ts -> (2.0)');
+          expect(scn).toContain('§ (2) b.ts -> (3.0) <- (1.0)');
+          expect(scn).toContain('§ (3) c.ts <- (2.0)');
+
+          // Entity-level links
+          const aScn = scn.split('\n\n').find(s => s.includes('a.ts'));
+          const bScn = scn.split('\n\n').find(s => s.includes('b.ts'));
+          const cScn = scn.split('\n\n').find(s => s.includes('c.ts'));
+          
+          expect(aScn).toContain('~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
+          expect(bScn).toContain('+ ◇ (2.1) B\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
+          expect(cScn).toContain('+ ◇ (3.1) C\n    <- (2.1)'); // C is used by B
+        });
+        
+        it('should link a dependency from the function that uses it, not just the file', async () => {
+          project = await setupTestProject({
+            'util.ts': `export function log() {}`,
+            'main.ts': `
+              import { log } from './util';
+              function run() {
+                log();
+              }
+            `,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          
+          const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+          expect(mainScn).toBeDefined();
+          expect(mainScn).toContain('~ (1.1) run()\n    -> (2.1)');
+        });
+
+        it('should support linking to multiple entities on one line', async () => {
+           project = await setupTestProject({
+            'util.ts': `
+              export function helperA() {}
+              export function helperB() {}
+            `,
+            'main.ts': `
+              import { helperA, helperB } from './util';
+              export function run() {
+                helperA();
+                helperB();
+              }
+            `,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+          expect(mainScn).toBeDefined();
+          // main.ts is file 1, util.ts is file 2.
+          // run is 1.1, helperA is 2.1, helperB is 2.2
+          expect(mainScn).toContain('+ ~ (1.1) run()\n    -> (2.1), (2.2)');
+        });
+      });
+    patchStrategy: replace
+  - type: write
+    path: test/ts/unit/code-entities.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.3 Code Entities', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should represent a class with ◇', async () => {
+          project = await setupTestProject({ 'test.ts': `export class MyClass {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ ◇ (1.1) MyClass');
+        });
+
+        it('should represent a namespace with ◇', async () => {
+          project = await setupTestProject({ 'test.ts': `export namespace MyNamespace {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ ◇ (1.1) MyNamespace');
+        });
+        
+        it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
+          project = await setupTestProject({ 'test.ts': `export const MyModule = { key: 'value' };` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain(`+ ◇ (1.1) MyModule { key: 'value' }`);
+        });
+
+        it('should represent an interface with {}', async () => {
+          project = await setupTestProject({ 'test.ts': `export interface MyInterface {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ {} (1.1) MyInterface');
+        });
+
+        it('should represent an export function with + ~', async () => {
+          project = await setupTestProject({ 'test.ts': `export function myFunc() {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ ~ (1.1) myFunc()');
+        });
+
+        it('should represent a const arrow function with ~', async () => {
+          project = await setupTestProject({ 'test.ts': `const myFunc = () => {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('~ (1.1) myFunc () => { }');
+        });
+
+        it('should represent a class method with ~ and a property with @', async () => {
+          project = await setupTestProject({
+            'test.ts': `
+            export class MyClass {
+              myProp: string = '';
+              myMethod() {}
+            }`,
+          });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ @ (1.2) myProp');
+          expect(scn).toContain('+ ~ (1.3) myMethod()');
+        });
+
+        it('should represent a top-level const with @', async () => {
+          project = await setupTestProject({ 'test.ts': `const myVar = 123;` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          // Note: repograph represents this as a "variable" and heuristic makes it not a container
+          expect(scn).toContain('@ (1.1) myVar 123');
+        });
+        
+        it('should correctly handle export default class', async () => {
+          project = await setupTestProject({ 'test.ts': `export default class MyClass {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ ◇ (1.1) MyClass');
+        });
+
+        it('should correctly handle export default function', async () => {
+          project = await setupTestProject({ 'test.ts': `export default function myFunc() {}` });
+          const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+          expect(scn).toContain('+ ~ (1.1) myFunc()');
+        });
+      });
+    patchStrategy: replace
+snapshot:
+  test/test.util.ts: null
+  test/ts/unit/general-structural.test.ts: null
+  test/ts/integration/dependency-graph.test.ts: null
+  test/ts/unit/code-entities.test.ts: null
+  src/serializer.ts: >-
+    import type {
+      RankedCodeGraph,
+      CodeNode,
+      CodeEdge,
+      CodeNodeVisibility as Visibility,
+      CssIntent,
+      CodeNodeType,
+    } from 'repograph';
+
+
+    type ScnSymbol = '◇' | '~' | '@' | '{}' | '☰' | '=:' | '⛶' | '¶' | '?';
+
+    type QualifierSymbol = '+' | '-' | '...' | '!' | 'o';
+
+    type CssIntentSymbol = '📐' | '✍' | '💧';
+
+
+    const ENTITY_TYPE_TO_SYMBOL: Record<CodeNodeType, ScnSymbol | undefined> = {
+      class: '◇',
+      function: '~',
+      method: '~',
+      interface: '{}',
+      enum: '☰',
+      type: '=:',
+      html_element: '⛶',
+      css_rule: '¶',
+      namespace: '◇',
+      struct: '◇',
+      property: '@',
+      field: '@',
+      variable: '@',
+      constant: '@',
+      arrow_function: '~',
+      constructor: '~',
+      file: undefined,
+      trait: undefined,
+      impl: undefined,
+      static: undefined,
+      union: undefined,
+      template: undefined,
+    };
+
+
+    const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+      layout: '📐',
+      typography: '✍',
+      appearance: '💧',
+    };
+
+
+    const getVisibilitySymbol = (visibility?: Visibility): '+' | '-' | undefined
+    => {
+      if (visibility === 'public') return '+';
+      if (visibility === 'private') return '-';
+      return undefined;
+    };
+
+
+    const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+      return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+    };
+
+
+    const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+      const qualifiers: QualifierSymbol[] = [];
+      const visibilitySymbol = getVisibilitySymbol(node.visibility);
+      if (visibilitySymbol) {
+        qualifiers.push(visibilitySymbol);
+      }
+      if (node.isAsync) {
+        qualifiers.push('...');
+      }
+      if (node.canThrow) {
+        qualifiers.push('!');
+      }
+      if (node.isPure) {
+        qualifiers.push('o');
+      }
+      return qualifiers;
+    };
+
+
+    const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
+      if (intents.length === 0) return '';
+      const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+      return `{ ${symbols.join(' ')} }`;
+    };
+
+
+    const formatNodeId = (node: CodeNode): string => `(${node.id})`;
+
+
+    const formatSignature = (node: CodeNode): string => {
+      if (node.codeSnippet) {
+        return node.codeSnippet;
+      }
+      return node.type === 'css_rule' && node.cssIntents
+        ? formatCssIntents(node.cssIntents)
+        : '';
+    };
+
+
+    const formatNode = (node: CodeNode, allEdges: readonly CodeEdge[]): string[]
+    => {
+      const symbol = getNodeSymbol(node);
+      const qualifiers = getQualifiers(node);
+      const name = node.name;
+      const signature = formatSignature(node);
+      const id = formatNodeId(node);
+
+      const mainLine = [
+        '  ', // Indentation
+        ...qualifiers,
+        symbol,
+        id,
+        name,
+        signature,
+      ].filter(p => p).join(' ');
+      
+      const dependencyLines = allEdges
+        .filter(edge => edge.fromId === node.id)
+        .map(edge => `    -> (${edge.toId})`);
+
+      const callerLines = allEdges
+        .filter(edge => edge.toId === node.id)
+        .map(edge => `    <- (${edge.fromId})`);
+
+      return [mainLine, ...dependencyLines, ...callerLines];
+    };
+
+
+    const getFileDependencies = (fileNode: CodeNode, allEdges: readonly
+    CodeEdge[]): string[] => {
+      return allEdges
+        .filter(edge => edge.type === 'imports' && edge.fromId === fileNode.id)
+        .map(edge => `  -> (${edge.toId})`);
+    };
+
+
+    const getFileCallers = (fileNode: CodeNode, allEdges: readonly CodeEdge[]):
+    string[] => {
+      return allEdges
+        .filter(edge => edge.type === 'imports' && edge.toId === fileNode.id)
+        .map(edge => `  <- (${edge.fromId})`);
+    };
+
+
+    const serializeFile = (
+      fileNode: CodeNode,
+      symbols: readonly CodeNode[],
+      allEdges: readonly CodeEdge[]
+    ): string => {
+      const header = `§ (${fileNode.id}) ${fileNode.filePath}`;
+      
+      const fileDependencies = getFileDependencies(fileNode, allEdges);
+      const fileCallers = getFileCallers(fileNode, allEdges);
+
+      const nodeLines = symbols.flatMap(node => formatNode(node, allEdges));
+
+      return [header, ...fileDependencies, ...fileCallers, ...nodeLines].join('\n');
+    };
+
+
+    /**
+     * Serializes a RankedCodeGraph into the SCN text format.
+     * This function is the core rendering layer of `scn-ts`.
+     *
+     * @param graph The `RankedCodeGraph` produced by `repograph`.
+     * @returns A string containing the full SCN map.
+     */
+    export const serializeGraph = (graph: RankedCodeGraph): string => {
+      const nodesByFile = new Map<string, CodeNode[]>();
+      const fileNodes: CodeNode[] = [];
+
+      for (const node of graph.nodes.values()) {
+        if (node.type === 'file') {
+          fileNodes.push(node);
+        } else {
+          if (!nodesByFile.has(node.filePath)) {
+            nodesByFile.set(node.filePath, []);
+          }
+          nodesByFile.get(node.filePath)!.push(node);
+        }
+      }
+
+      // SCN spec prefers sorting by a numeric ID, but repograph uses string IDs (paths).
+      // We'll sort by path for consistent output.
+      const sortedFileNodes = fileNodes.sort((a, b) => a.id.localeCompare(b.id));
+      
+      const scnParts = sortedFileNodes.map(fileNode => {
+        const symbols = nodesByFile.get(fileNode.filePath) || [];
+        symbols.sort((a,b) => a.startLine - b.startLine);
+        return serializeFile(fileNode, symbols, graph.edges);
+      });
+
+      return scnParts.join('\n\n');
+    };
+approved: true

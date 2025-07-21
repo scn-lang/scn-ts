@@ -25,6 +25,7 @@
   "include": [
     "package.json",
     "tsconfig.json",
+    "src",
     "docs/test.plan.md",
     "docs/scn.readme.md"
   ],

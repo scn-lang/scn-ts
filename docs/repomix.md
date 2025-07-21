@@ -3,6 +3,9 @@
 docs/
   scn.readme.md
   test.plan.md
+src/
+  index.ts
+  serializer.ts
 package.json
 tsconfig.json
 ```
@@ -359,6 +362,7 @@ This section focuses on the correctness of the SCN output for various JavaScript
 
 -   `[unit]` it should correctly parse a React functional component with props as `◇ (id) MyComponent { props: { p1:#, p2:# } }`.
 -   `[unit]` it should represent a JSX element like `<button>` with the `⛶` symbol.
+-   `[unit]` it should represent a JSX element's attributes of interest (e.g., `class`, `id`) inside brackets `[ ]`.
 -   `[unit]` it should represent JSX hierarchy with indentation.
 -   `[unit]` it should link a JSX element's `className` to a CSS file import.
 -   `[unit]` it should correctly parse various export syntaxes (`export {}`, `export default`, `export * from`).
@@ -433,6 +437,233 @@ This section tests file system interactions, particularly watch mode. These are 
 -   `[e2e]` `--watch`: it should re-generate the SCN map when a new file matching the glob is added.
 -   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is deleted.
 -   `[e2e]` it should handle file paths with spaces or special characters correctly.
+````
+
+## File: src/index.ts
+````typescript
+import { analyzeProject } from 'repograph';
+import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
+import { serializeGraph } from './serializer';
+
+/**
+ * Configuration options for generating an SCN map.
+ * These options are passed to the underlying `repograph` engine.
+ */
+export interface ScnTsConfig {
+  /** Glob patterns for files to include. */
+  include: string[];
+  /** Glob patterns for files to exclude. */
+  exclude?: string[];
+  /** Path to the project's tsconfig.json. (Not currently used by repograph) */
+  project?: string;
+  /** (Future) An array of language parser plugins. */
+  // plugins?: unknown[];
+}
+
+/**
+ * High-level API to generate an SCN context map from a project.
+ *
+ * This function orchestrates the entire process:
+ * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
+ * 2. Serializes the resulting graph into the SCN text format.
+ *
+ * @param config - The configuration specifying which files to analyze.
+ * @returns A promise that resolves to the SCN map as a string.
+ */
+export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+  // 1. repograph analyzes the project and returns a structured graph.
+  const repoGraphOptions: RepoGraphOptions = {
+    include: config.include,
+    ignore: config.exclude,
+    // We can set other repograph options here if needed, e.g. rankingStrategy
+  };
+  const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+
+  // 2. scn-ts serializes that graph into the SCN text format.
+  const scnOutput = serializeGraph(graph);
+  return scnOutput;
+};
+````
+
+## File: src/serializer.ts
+````typescript
+import type {
+  RankedCodeGraph,
+  CodeNode,
+  CodeEdge,
+  CodeNodeVisibility as Visibility,
+  CssIntent,
+  CodeNodeType,
+} from 'repograph';
+
+type ScnSymbol = '◇' | '~' | '@' | '{}' | '☰' | '=:' | '⛶' | '¶' | '?';
+type QualifierSymbol = '+' | '-' | '...' | '!' | 'o';
+type CssIntentSymbol = '📐' | '✍' | '💧';
+
+const ENTITY_TYPE_TO_SYMBOL: Record<CodeNodeType, ScnSymbol | undefined> = {
+  class: '◇',
+  function: '~',
+  method: '~',
+  interface: '{}',
+  enum: '☰',
+  type: '=:',
+  html_element: '⛶',
+  css_rule: '¶',
+  namespace: '◇',
+  struct: '◇',
+  property: '@',
+  field: '@',
+  variable: '@',
+  constant: '@',
+  arrow_function: '~',
+  constructor: '~',
+  file: undefined,
+  trait: undefined,
+  impl: undefined,
+  static: undefined,
+  union: undefined,
+  template: undefined,
+};
+
+const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+  layout: '📐',
+  typography: '✍',
+  appearance: '💧',
+};
+
+const getVisibilitySymbol = (visibility?: Visibility): '+' | '-' | undefined => {
+  if (visibility === 'public') return '+';
+  if (visibility === 'private') return '-';
+  return undefined;
+};
+
+const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+  return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+};
+
+const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+  const qualifiers: QualifierSymbol[] = [];
+  const visibilitySymbol = getVisibilitySymbol(node.visibility);
+  if (visibilitySymbol) {
+    qualifiers.push(visibilitySymbol);
+  }
+  if (node.isAsync) {
+    qualifiers.push('...');
+  }
+  if (node.canThrow) {
+    qualifiers.push('!');
+  }
+  if (node.isPure) {
+    qualifiers.push('o');
+  }
+  return qualifiers;
+};
+
+const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
+  if (intents.length === 0) return '';
+  const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+  return `{ ${symbols.join(' ')} }`;
+};
+
+const formatNodeId = (node: CodeNode): string => `(${node.id})`;
+
+const formatSignature = (node: CodeNode): string => {
+  if (node.codeSnippet) {
+    return node.codeSnippet;
+  }
+  return node.type === 'css_rule' && node.cssIntents
+    ? formatCssIntents(node.cssIntents)
+    : '';
+};
+
+const formatNode = (node: CodeNode, allEdges: readonly CodeEdge[]): string[] => {
+  const symbol = getNodeSymbol(node);
+  const qualifiers = getQualifiers(node);
+  const name = node.name;
+  const signature = formatSignature(node);
+  const id = formatNodeId(node);
+
+  const mainLine = [
+    '  ', // Indentation
+    ...qualifiers,
+    symbol,
+    id,
+    name,
+    signature,
+  ].filter(p => p).join(' ');
+  
+  const dependencyLines = allEdges
+    .filter(edge => edge.fromId === node.id)
+    .map(edge => `    -> (${edge.toId})`);
+
+  const callerLines = allEdges
+    .filter(edge => edge.toId === node.id)
+    .map(edge => `    <- (${edge.fromId})`);
+
+  return [mainLine, ...dependencyLines, ...callerLines];
+};
+
+const getFileDependencies = (fileNode: CodeNode, allEdges: readonly CodeEdge[]): string[] => {
+  return allEdges
+    .filter(edge => edge.type === 'imports' && edge.fromId === fileNode.id)
+    .map(edge => `  -> (${edge.toId})`);
+};
+
+const getFileCallers = (fileNode: CodeNode, allEdges: readonly CodeEdge[]): string[] => {
+  return allEdges
+    .filter(edge => edge.type === 'imports' && edge.toId === fileNode.id)
+    .map(edge => `  <- (${edge.fromId})`);
+};
+
+const serializeFile = (
+  fileNode: CodeNode,
+  symbols: readonly CodeNode[],
+  allEdges: readonly CodeEdge[]
+): string => {
+  const header = `§ (${fileNode.id}) ${fileNode.filePath}`;
+  
+  const fileDependencies = getFileDependencies(fileNode, allEdges);
+  const fileCallers = getFileCallers(fileNode, allEdges);
+
+  const nodeLines = symbols.flatMap(node => formatNode(node, allEdges));
+
+  return [header, ...fileDependencies, ...fileCallers, ...nodeLines].join('\n');
+};
+
+/**
+ * Serializes a RankedCodeGraph into the SCN text format.
+ * This function is the core rendering layer of `scn-ts`.
+ *
+ * @param graph The `RankedCodeGraph` produced by `repograph`.
+ * @returns A string containing the full SCN map.
+ */
+export const serializeGraph = (graph: RankedCodeGraph): string => {
+  const nodesByFile = new Map<string, CodeNode[]>();
+  const fileNodes: CodeNode[] = [];
+
+  for (const node of graph.nodes.values()) {
+    if (node.type === 'file') {
+      fileNodes.push(node);
+    } else {
+      if (!nodesByFile.has(node.filePath)) {
+        nodesByFile.set(node.filePath, []);
+      }
+      nodesByFile.get(node.filePath)!.push(node);
+    }
+  }
+
+  // SCN spec prefers sorting by a numeric ID, but repograph uses string IDs (paths).
+  // We'll sort by path for consistent output.
+  const sortedFileNodes = fileNodes.sort((a, b) => a.id.localeCompare(b.id));
+  
+  const scnParts = sortedFileNodes.map(fileNode => {
+    const symbols = nodesByFile.get(fileNode.filePath) || [];
+    symbols.sort((a,b) => a.startLine - b.startLine);
+    return serializeFile(fileNode, symbols, graph.edges);
+  });
+
+  return scnParts.join('\n\n');
+};
 ````
 
 ## File: package.json
