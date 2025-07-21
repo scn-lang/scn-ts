@@ -188,8 +188,10 @@ const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; 
 
 const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
   if (intents.length === 0) return '';
-  const symbols = intents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
-  return `{ ${symbols.sort().join(' ')} }`;
+  // Sort intents alphabetically first, then map to symbols
+  const sortedIntents = [...intents].sort();
+  const symbols = sortedIntents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+  return `{ ${symbols.join(' ')} }`;
 };
 
 const formatFunctionSignature = (snippet: string): string => {
