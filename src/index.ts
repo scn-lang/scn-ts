@@ -7,6 +7,8 @@ import { serializeGraph } from './serializer';
  * These options are passed to the underlying `repograph` engine.
  */
 export interface ScnTsConfig {
+  /** The root directory of the project to analyze. Defaults to the current working directory. */
+  root?: string;
   /** Glob patterns for files to include. */
   include: string[];
   /** Glob patterns for files to exclude. */
@@ -30,6 +32,7 @@ export interface ScnTsConfig {
 export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   // 1. repograph analyzes the project and returns a structured graph.
   const repoGraphOptions: RepoGraphOptions = {
+    root: config.root,
     include: config.include,
     ignore: config.exclude,
     // We can set other repograph options here if needed, e.g. rankingStrategy

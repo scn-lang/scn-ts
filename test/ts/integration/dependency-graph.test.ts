@@ -17,7 +17,10 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'util.ts': `export function helper() {}`,
       'main.ts': `import { helper } from './util'; function main() { helper(); }`,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
 
     const utilScn = scn.split('\n\n').find(s => s.includes('util.ts'));
     expect(utilScn).toBeDefined();
@@ -32,8 +35,11 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'service.ts': `import { setting } from './config'; export const value = setting;`,
       'main.ts': `import { value } from './service'; console.log(value);`,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
-    
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
     expect(scn).toContain('§ (1) config.ts <- (3.0)');
     expect(scn).toContain('§ (2) main.ts -> (3.0)');
     expect(scn).toContain('§ (3) service.ts -> (1.0) <- (2.0)');
@@ -45,7 +51,10 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'b.ts': `import { C } from './c'; export const B = C;`,
       'a.ts': `import { B } from './b'; function run() { console.log(B); }`,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
 
     // File-level links
     expect(scn).toContain('§ (1) a.ts -> (2.0)');
@@ -56,7 +65,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
     const aScn = scn.split('\n\n').find(s => s.includes('a.ts'));
     const bScn = scn.split('\n\n').find(s => s.includes('b.ts'));
     const cScn = scn.split('\n\n').find(s => s.includes('c.ts'));
-    
+
     expect(aScn).toContain('~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
     expect(bScn).toContain('+ ◇ (2.1) B\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
     expect(cScn).toContain('+ ◇ (3.1) C\n    <- (2.1)'); // C is used by B
@@ -72,8 +81,11 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
         }
       `,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
-    
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
     const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
     expect(mainScn).toBeDefined();
     expect(mainScn).toContain('~ (1.1) run()\n    -> (2.1)');
@@ -93,7 +105,10 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
         }
       `,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
     const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
     expect(mainScn).toBeDefined();
     // main.ts is file 1, util.ts is file 2.

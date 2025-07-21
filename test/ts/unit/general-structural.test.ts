@@ -17,7 +17,10 @@ describe('SCN Generation: 1.1 General & Structural', () => {
       'a.ts': ``,
       'b.ts': ``,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
 
     expect(scn).toContain('§ (1) a.ts');
     expect(scn).toContain('§ (2) b.ts');
@@ -30,7 +33,10 @@ describe('SCN Generation: 1.1 General & Structural', () => {
         export class ClassB {}
       `,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
 
     expect(scn).toContain('+ ~ (1.1) funcA()');
     expect(scn).toContain('+ ◇ (1.2) ClassB');
@@ -41,8 +47,11 @@ describe('SCN Generation: 1.1 General & Structural', () => {
       'a.ts': `import './b.ts';`,
       'b.ts': `console.log('side effect');`,
     });
-    const scn = await generateScn({ include: [`${project.projectDir}/**/*.ts`] });
-    
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
     expect(scn).toContain('§ (1) a.ts -> (2.0)');
     expect(scn).toContain('§ (2) b.ts <- (1.0)');
   });

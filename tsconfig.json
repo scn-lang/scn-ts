@@ -8,6 +8,12 @@
     "jsx": "react-jsx",
     "allowJs": true,
 
+    // Path mapping for local development
+    "baseUrl": ".",
+    "paths": {
+      "repograph": ["repograph/src/index.ts"]
+    },
+
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
