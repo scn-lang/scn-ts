@@ -25,7 +25,7 @@
   "include": [
     "package.json",
     "tsconfig.json",
-    "src",
+    // "src",
     // "docs/test.plan.md",
     "docs/scn.readme.md",
     "test",
@@ -33,7 +33,17 @@
     "repograph/package.json",
     "repograph/tsconfig.json",
     "repograph/tsconfig.build.json",
-    "repograph/src",
+    // "repograph/src",
+
+    "repograph/test/e2e/cli.test.ts",
+    "repograph/test/integration/multi-language.test.ts",
+    "repograph/test/unit/codenode-qualifiers.test.ts",
+    "repograph/test/unit/analyze.test.ts",
+
+    "repograph/src/pipeline/analyze.ts",
+    "repograph/src/types.ts",
+    "repograph/src/tree-sitter/queries.ts",
+    "repograph/src/index.ts",
   ],
   "ignore": {
     "useGitignore": true,

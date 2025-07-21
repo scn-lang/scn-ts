@@ -176,7 +176,9 @@ const formatSignature = (node: CodeNode): string => {
   
   // For arrow functions, show the arrow function syntax
   if (node.type === 'arrow_function' && node.codeSnippet) {
-    return node.codeSnippet;
+    // Clean up the arrow function display - remove variable name duplication
+    const cleanSnippet = node.codeSnippet.replace(new RegExp(`^${node.name}\\s*=\\s*`), '');
+    return cleanSnippet;
   }
   
   // For CSS rules, show intents
@@ -204,7 +206,7 @@ const formatSignature = (node: CodeNode): string => {
     }
     // Extract simple values like "123", "'value'", etc.
     const match = node.codeSnippet.match(/=\s*(.+)$/);
-    if (match) {
+    if (match && match[1]) {
       return `= ${match[1].trim()}`;
     }
     // If no assignment found, just return the snippet
@@ -237,6 +239,12 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
     // For class methods, use just the method name, not the qualified name
     const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
     parts.push(displayName + signature);
+  } else if (node.type === 'arrow_function') {
+    // For arrow functions, show name and the arrow function syntax
+    parts.push(node.name);
+    if (signature) {
+      parts.push(signature);
+    }
   } else {
     // For properties and other entities, use just the simple name
     const displayName = (node.type === 'property' || node.type === 'field') && node.name.includes('.') 
