@@ -1,11 +1,17 @@
 import type {
   RankedCodeGraph,
   CodeNode,
-  CodeEdge,
+  CodeEdge as RepographEdge,
   CodeNodeVisibility as Visibility,
   CssIntent,
   CodeNodeType,
 } from "repograph";
+
+// Allow for 'contains' and 'references' edges which might be produced by repograph
+// but not present in a minimal type definition.
+type CodeEdge = Omit<RepographEdge, 'type'> & {
+  type: RepographEdge['type'] | 'contains' | 'references';
+};
 import { readFileSync } from "fs";
 import { join } from "path";
 
@@ -135,30 +141,48 @@ const isExported = (node: CodeNode, rootDir?: string): boolean => {
 const getVisibilitySymbol = (visibility?: Visibility, node?: CodeNode, rootDir?: string): '+' | '-' | undefined => {
   if (visibility === 'public') return '+';
   if (visibility === 'private') return '-';
-  
-  // If repograph doesn't provide visibility info, infer it from source
+
+  // In TypeScript, class members are public by default.
+  if (node && (node.type === 'method' || node.type === 'property' || node.type === 'field')) {
+      const source = getSourceContent(node.filePath, rootDir);
+      // A simple check to see if it is explicitly private/protected. If not, it's public.
+      const line = (source.split('\n')[node.startLine - 1] || '').trim();
+      if (!line.startsWith('private') && !line.startsWith('protected')) {
+        return '+';
+      }
+  }
+
+  // If repograph doesn't provide visibility info, infer it from source for other types
   if (node && isExported(node, rootDir)) {
     return '+';
   }
-  
+
   return undefined;
 };
 
 const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+  // Heuristic: Treat PascalCase functions as components (e.g., React)
+  if ((node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name)) {
+    return '◇';
+  }
   // Heuristic: Treat uppercase constants/variables as containers (module pattern)
-  if ((node.type === 'variable' || node.type === 'constant') && node.name.match(/^[A-Z]/)) {
-      return '◇';
+  if ((node.type === 'variable' || node.type === 'constant') && /^[A-Z]/.test(node.name)) {
+    return '◇';
   }
   return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
 };
 
-const getQualifiers = (node: CodeNode, rootDir?: string): QualifierSymbol[] => {
-  const qualifiers: QualifierSymbol[] = [];
+const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; others: QualifierSymbol[] } => {
+  const qualifiers: { access?: '+' | '-'; others: QualifierSymbol[] } = { others: [] };
   const visibilitySymbol = getVisibilitySymbol(node.visibility, node, rootDir);
-  if (visibilitySymbol) qualifiers.push(visibilitySymbol);
-  if (node.isAsync) qualifiers.push('...');
-  if (node.canThrow) qualifiers.push('!');
-  if (node.isPure) qualifiers.push('o');
+  if (visibilitySymbol) qualifiers.access = visibilitySymbol;
+
+  const others: QualifierSymbol[] = [];
+  if (node.isAsync) others.push('...');
+  if (node.canThrow) others.push('!');
+  if (node.isPure) others.push('o');
+  qualifiers.others = others;
+  
   return qualifiers;
 };
 
@@ -168,24 +192,77 @@ const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
   return `{ ${symbols.sort().join(' ')} }`;
 };
 
+const formatFunctionSignature = (snippet: string): string => {
+  // Find parameters part, e.g., (a: string, b: number)
+  const paramsMatch = snippet.match(/\(([^)]*)\)/);
+  let params = '()';
+  if (paramsMatch) {
+    // Replace type annotations with #
+    const paramContent = paramsMatch[1].replace(/:[^\,)]+/g, ': #');
+    params = `(${paramContent})`;
+  }
+
+  // Find return type, e.g., ): string
+  const returnMatch = snippet.match(/\)\s*:\s*([\w\.<>\[\]\| &]+)/);
+  let returnType = '';
+  if (returnMatch && returnMatch[1]) {
+    const type = returnMatch[1].trim();
+    if (type !== 'void' && type !== 'any' && type !== 'unknown') {
+       returnType = `: #${type}`;
+    }
+  }
+
+  return `${params}${returnType}`;
+}
+
+const formatJsxAttributes = (snippet: string): string => {
+    const attrs = [];
+    const idMatch = snippet.match(/id="([^"]+)"/);
+    if (idMatch) attrs.push(`id:#${idMatch[1]}`);
+    
+    const classMatch = snippet.match(/className="([^"]+)"/);
+    if (classMatch) {
+        const classes = classMatch[1].split(' ').map(c => `.${c}`).join(' ');
+        attrs.push(`class:${classes}`);
+    }
+    
+    return attrs.length > 0 ? ` [ ${attrs.join(' ')} ]` : '';
+}
+
 const formatSignature = (node: CodeNode): string => {
+  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
+
+  if (isComponent && node.codeSnippet) {
+    const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
+    if (propMatch) {
+      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0].trim()).filter(Boolean);
+      const propsString = props.map(p => `${p}:#`).join(', ');
+      return `{ props: { ${propsString} } }`;
+    }
+    return ''; // Component with no destructured props
+  }
+
   // For functions, format as name() instead of showing full code snippet
-  if (node.type === 'function' || node.type === 'method' || node.type === 'constructor') {
-    return '()';
+  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor' || node.type === 'arrow_function') && node.codeSnippet) {
+    return formatFunctionSignature(node.codeSnippet);
   }
   
-  // For arrow functions, show the arrow function syntax
-  if (node.type === 'arrow_function' && node.codeSnippet) {
-    // Clean up the arrow function display - remove variable name duplication
-    const cleanSnippet = node.codeSnippet.replace(new RegExp(`^${node.name}\\s*=\\s*`), '');
-    return cleanSnippet;
+  // For JSX/HTML elements, show attributes
+  if (node.type === 'html_element' && node.codeSnippet) {
+    return formatJsxAttributes(node.codeSnippet);
   }
-  
+
   // For CSS rules, show intents
   if (node.type === 'css_rule' && node.cssIntents) {
     return formatCssIntents(node.cssIntents);
   }
-  
+
+  // For type aliases, show the aliased type
+  if (node.type === 'type' && node.codeSnippet) {
+     const match = node.codeSnippet.match(/=\s*(.+);?/);
+     return match ? `= ${match[1].trim().replace(/;$/, '')}` : '';
+  }
+
   // For variables/constants, show the value if it's simple
   if ((node.type === 'variable' || node.type === 'constant') && node.codeSnippet) {
     // For uppercase constants that are treated as modules (◇ symbol), show different formatting
@@ -221,44 +298,41 @@ const formatSignature = (node: CodeNode): string => {
   return '';
 };
 
-const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string): string => {
+const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string, level = 0): string => {
   const symbol = getNodeSymbol(node);
-  const qualifiers = getQualifiers(node, rootDir).join(' ');
+  const { access, others } = getQualifiers(node, rootDir);
   const signature = formatSignature(node);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
+  const indent = '  '.repeat(level);
 
   // Build the main line: qualifiers symbol id name signature
   const parts = [];
-  if (qualifiers) parts.push(qualifiers);
+  if (access) parts.push(access);
   parts.push(symbol);
   if (id) parts.push(id);
-  
-  // For functions, combine name and signature without space
-  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor') && signature === '()') {
-    // For class methods, use just the method name, not the qualified name
+
+  // For functions, combine name and signature without space, unless it's a component
+  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
+  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor' || node.type === 'arrow_function') && !isComponent) {
     const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
     parts.push(displayName + signature);
-  } else if (node.type === 'arrow_function') {
-    // For arrow functions, show name and the arrow function syntax
-    parts.push(node.name);
-    if (signature) {
-      parts.push(signature);
-    }
   } else {
-    // For properties and other entities, use just the simple name
-    const displayName = (node.type === 'property' || node.type === 'field') && node.name.includes('.') 
-      ? node.name.split('.').pop() || node.name 
+    const displayName = (node.type === 'property' || node.type === 'field' || node.type === 'html_element') && node.name.includes('.')
+      ? node.name.split('.').pop() || node.name
       : node.name;
     parts.push(displayName);
     if (signature) parts.push(signature);
   }
-  
-  const mainLine = parts.join(' ');
+
+  let mainLine = indent + parts.join(' ');
+  if (others.length > 0) {
+    mainLine += ` ${others.sort().join(' ')}`;
+  }
 
   const formatLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
     if (edges.length === 0) return '';
-    const links = edges.map(edge => {
+    const links = edges.map((edge: CodeEdge) => {
       const isCallerLink = prefix === '<-';
       const targetRepographId = isCallerLink ? edge.fromId : edge.toId;
       const targetNode = graph.nodes.get(targetRepographId);
@@ -270,12 +344,14 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
         targetScnId = `${targetScnId}.0`;
       }
       return `(${targetScnId})`;
-    }).sort().join(', ');
-    return `\n    ${prefix} ${links}`;
+    }).filter(Boolean).sort().join(', ');
+
+    if (!links) return '';
+    return `\n${indent}  ${prefix} ${links}`;
   };
 
-  const dependencyEdges = graph.edges.filter(edge => edge.fromId === node.id);
-  const callerEdges = graph.edges.filter(edge => edge.toId === node.id && edge.type !== 'imports');
+  const dependencyEdges = (graph.edges as CodeEdge[]).filter(edge => edge.fromId === node.id && edge.type !== 'contains');
+  const callerEdges = (graph.edges as CodeEdge[]).filter(edge => edge.toId === node.id && edge.type !== 'imports' && edge.type !== 'contains');
 
   return mainLine + formatLinks('->', dependencyEdges) + formatLinks('<-', callerEdges);
 };
@@ -291,7 +367,7 @@ const serializeFile = (
 
   const formatFileLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
     if (edges.length === 0) return '';
-    const links = edges.map(edge => {
+    const links = edges.map((edge: CodeEdge) => {
       const targetId = prefix === '->' ? edge.toId : edge.fromId;
       const targetScnId = idManager.getScnId(targetId);
       return `(${targetScnId}.0)`;
@@ -306,7 +382,45 @@ const serializeFile = (
   header += formatFileLinks('->', fileDependencies);
   header += formatFileLinks('<-', fileCallers);
 
-  const nodeLines = symbols.map(node => formatNode(node, graph, idManager, rootDir));
+  // Hierarchical rendering
+  const allEdges = graph.edges as CodeEdge[];
+  const topLevelSymbols: CodeNode[] = [];
+
+  const childNodeIds = new Set<string>();
+  for (const edge of allEdges) {
+    if (edge.type === 'contains' && edge.fromId !== fileNode.id) {
+        const fromNode = graph.nodes.get(edge.fromId);
+        if (fromNode && fromNode.filePath === fileNode.filePath) {
+             childNodeIds.add(edge.toId);
+        }
+    }
+  }
+
+  for (const symbol of symbols) {
+    if (!childNodeIds.has(symbol.id)) {
+        topLevelSymbols.push(symbol);
+    }
+  }
+  
+  topLevelSymbols.sort((a, b) => a.startLine - b.startLine);
+
+  const nodeLines: string[] = [];
+  const processNode = (node: CodeNode, level: number) => {
+    nodeLines.push(formatNode(node, graph, idManager, rootDir, level));
+    const children = allEdges
+      .filter(e => e.type === 'contains' && e.fromId === node.id)
+      .map(e => graph.nodes.get(e.toId))
+      .filter((n): n is CodeNode => !!n)
+      .sort((a,b) => a.startLine - b.startLine);
+    
+    for (const child of children) {
+      processNode(child, level + 1);
+    }
+  };
+
+  for (const node of topLevelSymbols) {
+    processNode(node, 0);
+  }
 
   return [header, ...nodeLines].join('\n');
 };
@@ -342,7 +456,8 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 
   const scnParts = sortedFileNodes.map(fileNode => {
     const symbols = nodesByFile.get(fileNode.filePath) || [];
-    // Sorting is now handled inside the ID manager's constructor to ensure consistent IDs.
+    // Sort symbols by line number to ensure deterministic output for hierarchical processing
+    symbols.sort((a,b) => a.startLine - b.startLine);
     return serializeFile(fileNode, symbols, graph, idManager, rootDir);
   });
 
