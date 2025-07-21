@@ -40,6 +40,6 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
 
   // 2. scn-ts serializes that graph into the SCN text format.
-  const scnOutput = serializeGraph(graph);
+  const scnOutput = serializeGraph(graph, config.root);
   return scnOutput;
 };

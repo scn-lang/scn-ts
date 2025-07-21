@@ -6,6 +6,8 @@ import type {
   CssIntent,
   CodeNodeType,
 } from "repograph";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 type ScnSymbol = "◇" | "~" | "@" | "{}" | "☰" | "=:" | "⛶" | "¶" | "?";
 type QualifierSymbol = "+" | "-" | "..." | "!" | "o";
@@ -76,9 +78,69 @@ class ScnIdManager {
   }
 }
 
-const getVisibilitySymbol = (visibility?: Visibility): '+' | '-' | undefined => {
+// Cache for source file contents to avoid reading files multiple times
+const sourceFileCache = new Map<string, string>();
+
+const getSourceContent = (filePath: string, rootDir?: string): string => {
+  const fullPath = rootDir ? join(rootDir, filePath) : filePath;
+  if (!sourceFileCache.has(fullPath)) {
+    try {
+      const content = readFileSync(fullPath, 'utf-8');
+      sourceFileCache.set(fullPath, content);
+    } catch {
+      sourceFileCache.set(fullPath, '');
+    }
+  }
+  return sourceFileCache.get(fullPath) || '';
+};
+
+const isExported = (node: CodeNode, rootDir?: string): boolean => {
+  if (node.type === 'file') return false;
+  
+  const sourceContent = getSourceContent(node.filePath, rootDir);
+  if (!sourceContent) return false;
+  
+  // For class members (properties, methods), check if they're public by default
+  // In TypeScript, class members are public by default unless marked private/protected
+  if (node.type === 'property' || node.type === 'field' || node.type === 'method') {
+    // Check if it's explicitly marked as private or protected
+    const memberName = node.name.includes('.') ? node.name.split('.').pop() : node.name;
+    const privatePattern = new RegExp(`private\\s+${memberName}\\b`);
+    const protectedPattern = new RegExp(`protected\\s+${memberName}\\b`);
+    
+    if (privatePattern.test(sourceContent) || protectedPattern.test(sourceContent)) {
+      return false;
+    }
+    // If not explicitly private/protected, it's public
+    return true;
+  }
+  
+  // Check for export patterns
+  const exportPatterns = [
+    new RegExp(`export\\s+class\\s+${node.name}\\b`),
+    new RegExp(`export\\s+function\\s+${node.name}\\b`),
+    new RegExp(`export\\s+interface\\s+${node.name}\\b`),
+    new RegExp(`export\\s+namespace\\s+${node.name}\\b`),
+    new RegExp(`export\\s+const\\s+${node.name}\\b`),
+    new RegExp(`export\\s+let\\s+${node.name}\\b`),
+    new RegExp(`export\\s+var\\s+${node.name}\\b`),
+    new RegExp(`export\\s+default\\s+class\\s+${node.name}\\b`),
+    new RegExp(`export\\s+default\\s+function\\s+${node.name}\\b`),
+    new RegExp(`export\\s*{[^}]*\\b${node.name}\\b[^}]*}`),
+  ];
+  
+  return exportPatterns.some(pattern => pattern.test(sourceContent));
+};
+
+const getVisibilitySymbol = (visibility?: Visibility, node?: CodeNode, rootDir?: string): '+' | '-' | undefined => {
   if (visibility === 'public') return '+';
   if (visibility === 'private') return '-';
+  
+  // If repograph doesn't provide visibility info, infer it from source
+  if (node && isExported(node, rootDir)) {
+    return '+';
+  }
+  
   return undefined;
 };
 
@@ -90,9 +152,9 @@ const getNodeSymbol = (node: CodeNode): ScnSymbol => {
   return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
 };
 
-const getQualifiers = (node: CodeNode): QualifierSymbol[] => {
+const getQualifiers = (node: CodeNode, rootDir?: string): QualifierSymbol[] => {
   const qualifiers: QualifierSymbol[] = [];
-  const visibilitySymbol = getVisibilitySymbol(node.visibility);
+  const visibilitySymbol = getVisibilitySymbol(node.visibility, node, rootDir);
   if (visibilitySymbol) qualifiers.push(visibilitySymbol);
   if (node.isAsync) qualifiers.push('...');
   if (node.canThrow) qualifiers.push('!');
@@ -106,20 +168,85 @@ const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
   return `{ ${symbols.sort().join(' ')} }`;
 };
 
-const formatSignature = (node: CodeNode): string =>
-  node.codeSnippet ??
-  (node.type === 'css_rule' && node.cssIntents
-    ? formatCssIntents(node.cssIntents) : '');
+const formatSignature = (node: CodeNode): string => {
+  // For functions, format as name() instead of showing full code snippet
+  if (node.type === 'function' || node.type === 'method' || node.type === 'constructor') {
+    return '()';
+  }
+  
+  // For arrow functions, show the arrow function syntax
+  if (node.type === 'arrow_function' && node.codeSnippet) {
+    return node.codeSnippet;
+  }
+  
+  // For CSS rules, show intents
+  if (node.type === 'css_rule' && node.cssIntents) {
+    return formatCssIntents(node.cssIntents);
+  }
+  
+  // For variables/constants, show the value if it's simple
+  if ((node.type === 'variable' || node.type === 'constant') && node.codeSnippet) {
+    // For uppercase constants that are treated as modules (◇ symbol), show different formatting
+    if (/^[A-Z]/.test(node.name)) {
+      // If it's an object literal, show it without = prefix (module pattern)
+      if (node.codeSnippet.startsWith('{') && node.codeSnippet.endsWith('}')) {
+        return node.codeSnippet;
+      }
+      // If it's a reference to another variable, don't show the assignment
+      if (!node.codeSnippet.startsWith('{')) {
+        return '';
+      }
+    }
+    
+    // For regular variables/constants, add = prefix if needed
+    if (!node.codeSnippet.includes('=')) {
+      return `= ${node.codeSnippet}`;
+    }
+    // Extract simple values like "123", "'value'", etc.
+    const match = node.codeSnippet.match(/=\s*(.+)$/);
+    if (match) {
+      return `= ${match[1].trim()}`;
+    }
+    // If no assignment found, just return the snippet
+    return node.codeSnippet;
+  }
+  
+  // For other container types, show their code snippet if available
+  if (node.codeSnippet && (node.type === 'class' || node.type === 'interface' || node.type === 'namespace')) {
+    return node.codeSnippet;
+  }
+  
+  return '';
+};
 
-const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager): string => {
+const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string): string => {
   const symbol = getNodeSymbol(node);
-  const qualifiers = getQualifiers(node).join('');
+  const qualifiers = getQualifiers(node, rootDir).join(' ');
   const signature = formatSignature(node);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
 
-  const mainLine = ['  ', qualifiers, symbol, id, node.name, signature]
-    .filter(p => p).join(' ').trim();
+  // Build the main line: qualifiers symbol id name signature
+  const parts = [];
+  if (qualifiers) parts.push(qualifiers);
+  parts.push(symbol);
+  if (id) parts.push(id);
+  
+  // For functions, combine name and signature without space
+  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor') && signature === '()') {
+    // For class methods, use just the method name, not the qualified name
+    const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
+    parts.push(displayName + signature);
+  } else {
+    // For properties and other entities, use just the simple name
+    const displayName = (node.type === 'property' || node.type === 'field') && node.name.includes('.') 
+      ? node.name.split('.').pop() || node.name 
+      : node.name;
+    parts.push(displayName);
+    if (signature) parts.push(signature);
+  }
+  
+  const mainLine = parts.join(' ');
 
   const formatLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
     if (edges.length === 0) return '';
@@ -149,7 +276,8 @@ const serializeFile = (
   fileNode: CodeNode,
   symbols: CodeNode[],
   graph: RankedCodeGraph,
-  idManager: ScnIdManager
+  idManager: ScnIdManager,
+  rootDir?: string
 ): string => {
   const scnId = idManager.getScnId(fileNode.id) ?? '';
 
@@ -170,7 +298,7 @@ const serializeFile = (
   header += formatFileLinks('->', fileDependencies);
   header += formatFileLinks('<-', fileCallers);
 
-  const nodeLines = symbols.map(node => formatNode(node, graph, idManager));
+  const nodeLines = symbols.map(node => formatNode(node, graph, idManager, rootDir));
 
   return [header, ...nodeLines].join('\n');
 };
@@ -180,9 +308,10 @@ const serializeFile = (
  * This function is the core rendering layer of `scn-ts`.
  *
  * @param graph - The `RankedCodeGraph` produced by `repograph`.
+ * @param rootDir - The root directory of the project (for reading source files).
  * @returns A string containing the full SCN map.
  */
-export const serializeGraph = (graph: RankedCodeGraph): string => {
+export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string => {
   const nodesByFile = new Map<string, CodeNode[]>(); // filePath -> nodes
   const fileNodes: CodeNode[] = [];
 
@@ -206,7 +335,7 @@ export const serializeGraph = (graph: RankedCodeGraph): string => {
   const scnParts = sortedFileNodes.map(fileNode => {
     const symbols = nodesByFile.get(fileNode.filePath) || [];
     // Sorting is now handled inside the ID manager's constructor to ensure consistent IDs.
-    return serializeFile(fileNode, symbols, graph, idManager);
+    return serializeFile(fileNode, symbols, graph, idManager, rootDir);
   });
 
   return scnParts.join('\n\n');
