@@ -1,0 +1,132 @@
+# SCN-TS Test Plan
+
+This document outlines the testing strategy for `scn-ts`, the reference implementation for Symbolic Context Notation. The tests are categorized by feature area and test type (unit, integration, e2e).
+
+---
+
+## 1. Core SCN Generation (JS/TS Parser)
+
+This section focuses on the correctness of the SCN output for various JavaScript and TypeScript language features. These tests are primarily **unit tests**, feeding source code snippets to the parser and asserting the resulting SCN AST/string.
+
+### 1.1. General & Structural Symbols
+
+-   `[unit]` it should generate a `§` file declaration with a unique ID and correct relative path for each file.
+-   `[unit]` it should assign unique, incrementing entity IDs within a file, starting from 1 (e.g., `(1.1)`, `(1.2)`).
+-   `[unit]` it should represent a direct import of another entity with `-> (file_id.entity_id)`.
+-   `[unit]` it should represent a dependency on an entire file (e.g., side-effect import `import './style.css'`) with a `.0` entity ID: `-> (file_id.0)`.
+-   `[unit]` it should support linking to multiple entities on one line (e.g. `-> (3.1), (3.2)`).
+-   `[integration]` it should resolve and add `<- (caller_file.caller_entity)` annotations to entities that are used by other entities.
+
+### 1.2. Inter-File Dependency Graphs
+
+-   `[integration]` it should add a summary of file-level dependencies on the `§` file declaration line itself (e.g., `§ (1) a.ts -> (2.0), (3.1)`).
+-   `[integration]` it should add a summary of file-level callers on the `§` file declaration line (e.g., `§ (2) b.ts <- (1.0)`).
+-   `[integration]` it should correctly resolve and represent a multi-step dependency chain across three or more files (e.g., `A.ts -> B.ts -> C.ts`).
+-   `[integration]` it should resolve dependencies used inside a function's body and link them from that function's entity, not just from the file's top-level imports.
+
+### 1.3. Code Entities (Classes, Functions, Variables)
+
+-   `[unit]` it should represent a `class`, TypeScript `namespace`, or an exported object literal (module pattern) with the `◇` symbol.
+-   `[unit]` it should represent an `interface` declaration with the `{}` symbol.
+-   `[unit]` it should represent an `export function` with the `+ ~` symbols.
+-   `[unit]` it should represent a `const myFunction = () => {}` with the `~` symbol.
+-   `[unit]` it should represent a class `method` with the `~` symbol.
+-   `[unit]` it should represent a class `property` or `field` with the `@` symbol.
+-   `[unit]` it should represent a top-level `const` variable with the `@` symbol.
+-   `[unit]` it should correctly handle `export default class/function`.
+
+### 1.4. Type System Symbols
+
+-   `[unit]` it should represent an `enum` with the `☰` symbol.
+-   `[unit]` it should represent a `type` alias (`type ID = string`) with the `=:` symbol.
+-   `[unit]` it should represent a type reference in a function signature or property with the `#` symbol (e.g., `id: string` becomes `id: #`).
+-   `[unit]` it should correctly represent complex types like `Promise<User>` as `#(Promise<User>)`.
+
+### 1.5. Function & Method Qualifiers
+
+-   `[unit]` it should prefix `public` members with `+`.
+-   `[unit]` it should prefix `private` members with `-`.
+-   `[unit]` it should append `...` to an `async` function or method.
+-   `[unit]` it should append `!` to a function that has a `throw` statement in its body.
+-   `[unit]` it should correctly handle functions that are both `async` and can `throw` (e.g., `... !`).
+-   `[unit]` it should append `o` to a pure function (one with no side-effects).
+
+### 1.6. JS/TS Specifics (including JSX)
+
+-   `[unit]` it should correctly parse a React functional component with props as `◇ (id) MyComponent { props: { p1:#, p2:# } }`.
+-   `[unit]` it should represent a JSX element like `<button>` with the `⛶` symbol.
+-   `[unit]` it should represent a JSX element's attributes of interest (e.g., `class`, `id`) inside brackets `[ ]`.
+-   `[unit]` it should represent JSX hierarchy with indentation.
+-   `[unit]` it should link a JSX element's `className` to a CSS file import.
+-   `[unit]` it should correctly parse various export syntaxes (`export {}`, `export default`, `export * from`).
+-   `[unit]` it should correctly parse various import syntaxes (`import X`, `import {Y}`, `import * as Z`).
+
+### 1.7. CSS Parsing
+
+-   `[unit]` it should generate a `¶` CSS Rule for each selector in a CSS file.
+-   `[integration]` it should correctly create `-> (css_file.rule_id)` links from a `⛶` JSX element to the corresponding `¶` CSS rule based on `className` or `id`.
+-   `[integration]` it should correctly create `<- (jsx_file.element_id)` links on a `¶` CSS rule pointing back to the `⛶` JSX element that uses it.
+-   `[unit]` it should include the `📐` layout intent symbol for rules containing box model, flex, grid, or positioning properties.
+-   `[unit]` it should include the `✍` text intent symbol for rules containing font or text styling properties.
+-   `[unit]` it should include the `💧` appearance intent symbol for rules containing color, background, border, or shadow properties.
+-   `[unit]` it should correctly handle a rule having multiple intents (e.g., `{ 📐 ✍ 💧 }`).
+
+---
+
+## 2. Programmatic API
+
+This section focuses on testing the exposed Node.js API for programmatic use. These are primarily **integration tests**.
+
+### 2.1. High-Level API (`generateScn`)
+
+-   `[integration]` it should generate a valid SCN string given a set of `include` globs.
+-   `[integration]` it should respect `exclude` patterns.
+-   `[integration]` it should use the `project` tsconfig path for better type analysis.
+-   `[integration]` it should throw an error for invalid options or non-existent files.
+
+### 2.2. Low-Level API
+
+-   `[integration]` `loadFiles`: it should correctly read files from disk based on glob patterns.
+-   `[integration]` `parse`: it should take file content and produce an array of SCN ASTs.
+-   `[integration]` `buildGraph`: it should take SCN ASTs and create a single, resolved graph with correct entity IDs and relationships.
+-   `[integration]` `serializeGraph`: it should take a resolved graph and produce a spec-compliant SCN string.
+
+---
+
+## 3. Command-Line Interface (CLI)
+
+This section covers the `scn-ts` executable. These are **end-to-end (e2e) tests** that run the CLI as a subprocess and inspect its output and side effects.
+
+-   `[e2e]` it should process glob patterns provided as arguments.
+-   `[e2e]` it should write the output to the file specified by `--output <path>` or `-o <path>`.
+-   `[e2e]` it should print the output to stdout if no output path is given.
+-   `[e2e]` it should respect the tsconfig file specified by `--project <path>` or `-p <path>`.
+-   `[e2e]` it should respect the config file specified by `--config <path>` or `-c <path>`.
+-   `[e2e]` it should override config file settings with CLI flags.
+-   `[e2e]` it should display the correct version with `--version` or `-v`.
+-   `[e2e]` it should display the help screen with `--help` or `-h`.
+-   `[e2e]` it should exit with a non-zero code on error (e.g., file not found, parse error).
+
+---
+
+## 4. Configuration (`scn.config.js`)
+
+This section tests the tool's ability to be configured via a `scn.config.js` file. These are **integration tests**.
+
+-   `[integration]` it should automatically find and load `scn.config.js` from the project root.
+-   `[integration]` it should correctly apply `include` patterns from the config.
+-   `[integration]` it should correctly apply `exclude` patterns from the config, overriding includes.
+-   `[integration]` it should use the `project` path from the config.
+-   `[integration]` it should write to the `output` path specified in the config.
+
+---
+
+## 5. File System & Watch Mode
+
+This section tests file system interactions, particularly watch mode. These are **e2e tests**.
+
+-   `[e2e]` `--watch`: it should start in watch mode and perform an initial scan.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is modified.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a new file matching the glob is added.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is deleted.
+-   `[e2e]` it should handle file paths with spaces or special characters correctly.

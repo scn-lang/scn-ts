@@ -1,4 +1,12 @@
 
+is test.plan.md already covered all scn notation v.1.0 compliance?
+
+===
+
+you are on scn-ts project
+
+based on "README.md" and "docs/scn.readme.md" please create "docs/test.plan.md" planning items with `it should` language separated in categories and unit, e2e, integration.
+
 ===
 
 you are on scn-ts project

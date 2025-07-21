@@ -1,1044 +1,488 @@
 # Directory Structure
 ```
-repograph/
-  test/
-    e2e/
-      cli.test.ts
-    unit/
-      high-level.test.ts
+docs/
+  scn.readme.md
+  test.plan.md
+package.json
+tsconfig.json
 ```
 
 # Files
 
-## File: repograph/test/e2e/cli.test.ts
-````typescript
-import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import {
-  createTempDir,
-  cleanupTempDir,
-  createTestFiles,
-  createGitignore,
-  assertFileExists,
-  readFile,
-  isValidMarkdown,
-  containsValidMermaid,
-  loadFixture,
-  createProjectFromFixture
-} from '../test.util.js';
-import path from 'node:path';
+## File: docs/scn.readme.md
+````markdown
+# Symbolic Context Notation (◮ SCN) Specification v1.0
 
-describe('CLI End-to-End Tests', () => {
-  let tempDir: string;
+**Symbolic Context Notation (SCN) is a hyper-efficient, language-agnostic format for representing the structural surface, API, and inter-file relationships of a software codebase.** It acts as a compressed blueprint of a project, designed to provide Large Language Models (LLMs) with unparalleled context at a fraction of the token cost of raw source code.
 
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-  });
+This document is the official specification. It's intended for developers, tool-builders, and anyone interested in the future of AI-assisted software development.
 
-  afterEach(async () => {
-    await cleanupTempDir(tempDir);
-  });
+---
 
-  const runCLI = async (args: string[], cwd?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> => {
-    return new Promise((resolve, reject) => {
-      const child = spawn('bun', ['run', 'src/index.ts', ...args], {
-        cwd: cwd || process.cwd(),
-        stdio: 'pipe'
-      });
+## 1. The Problem: The "Context Chasm"
 
-      let stdout = '';
-      let stderr = '';
+Large Language Models are powerful, but they operate with a critical handicap: they lack true understanding of a project's architecture. When we paste code into a prompt, we face a trade-off:
 
-      child.stdout?.on('data', (data) => {
-        stdout += data.toString();
-      });
+*   **Provide Too Little Code:** The LLM hallucinates, inventing functions, misusing APIs, and failing to see connections between files.
+*   **Provide Too Much Code:** We hit token limits, incur high costs, and the LLM gets lost in irrelevant implementation details, leading to slower, lower-quality responses.
 
-      child.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
+This is the **Context Chasm**. SCN is the bridge.
 
-      child.on('close', (code) => {
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code || 0
-        });
-      });
+## 2. The Solution: SCN Philosophy
 
-      child.on('error', reject);
-    });
-  };
+SCN bridges the chasm by adhering to four principles:
 
-  describe('Basic CLI Usage', () => {
-    it('should generate map with default options', async () => {
-      const files = {
-        'src/index.ts': `export class Example {
-  method(): string {
-    return 'hello';
+1.  **Extreme Token Efficiency:** Every symbol is chosen to be a single ASCII character where possible, maximizing the information-to-token ratio.
+2.  **Language Agnosticism:** The system abstracts concepts from OOP, FP, and Declarative paradigms into a unified format.
+3.  **Structural Representation:** SCN maps the *graph* of a project—which entity uses which, and which is used by which—revealing the true architecture.
+4.  **Human Scannability:** While machine-optimized, the format is surprisingly readable, allowing developers to quickly grasp a project's structure.
+
+---
+
+## 3. Comparison with Other Representations (AST, CST)
+
+To understand SCN's unique value, it's essential to compare it with traditional code representations like Concrete Syntax Trees (CSTs) and Abstract Syntax Trees (ASTs).
+
+| Feature               | **Concrete Syntax Tree (CST)**                               | **Abstract Syntax Tree (AST)**                               | **Symbolic Context Notation (SCN)**                          |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **Purpose**           | Perfectly represent the source text, including all syntax.   | Represent the abstract semantic structure of the code.       | **Represent the architectural surface & relationships.**     |
+| **Detail Level**      | **Hyper-Detailed.** Includes whitespace, comments, parentheses. | **Detailed.** Abstracts away syntax, focuses on structure.   | **Ultra-Concise.** Abstracts away implementation logic.      |
+| **Scope**             | Single file.                                                 | Single file.                                                 | **Project-wide.** Natively represents inter-file dependencies. |
+| **Language Agnostic?**| No. Highly specific to a language's grammar.                 | Mostly no. Structure is language-specific.                   | **Yes.** Symbolic system unifies concepts across languages.  |
+| **Token Cost**        | Extremely High.                                              | Very High.                                                   | **Extremely Low.** Designed for maximum token efficiency.    |
+| **Example Node**      | `(`, `function`, `myFunc`, `)`, `{`, `}`                     | `FunctionDeclaration(name: "myFunc", body: BlockStatement)`  | `~ (1.1) myFunc()`                                           |
+| **Primary Use Case**  | Parsers, formatters (like Prettier).                         | Compilers, linters, transpilers (like Babel).                | **LLM context, architecture visualization, dependency analysis.** |
+
+**Conclusion:** SCN is not a replacement for ASTs/CSTs. It is a **higher-level abstraction built on top of them**. A tool would first parse source code into an AST and then traverse that AST to generate the even more abstract and relationship-focused SCN map.
+
+---
+
+## 4. Before & After: The Power of SCN
+
+The best way to understand SCN is to see it in action.
+
+### Example 1: A Simple JavaScript Class
+
+#### **Before SCN: Raw Source Code (105 tokens)**
+```javascript
+// services/auth.js
+import { findUserByEmail, hashPassword } from './utils';
+
+/**
+ * Manages user authentication.
+ */
+export class AuthService {
+  constructor(database) {
+    this.db = database;
   }
-}`
-      };
-      await createTestFiles(tempDir, files);
 
-      const result = await runCLI([tempDir]);
+  // Tries to log a user in
+  async login(email, password) {
+    const user = await findUserByEmail(this.db, email);
+    if (!user) {
+      throw new Error('User not found');
+    }
 
-      expect(result.exitCode).toBe(0);
-      await assertFileExists(path.join(tempDir, 'repograph.md'));
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('Example');
-    });
+    const hash = hashPassword(password);
+    if (user.passwordHash !== hash) {
+      throw new Error('Invalid password');
+    }
 
-    it('should accept custom output path', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const outputPath = path.join(tempDir, 'custom-output.md');
-      const result = await runCLI([tempDir, '--output', outputPath]);
-
-      expect(result.exitCode).toBe(0);
-      await assertFileExists(outputPath);
-    });
-
-    it('should accept include patterns', async () => {
-      const files = {
-        'src/index.ts': 'export const ts = true;',
-        'src/index.js': 'export const js = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--include', '**/*.ts'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('src/index.ts');
-      expect(content).not.toContain('src/index.js');
-    });
-
-    it('should accept ignore patterns', async () => {
-      const files = {
-        'src/index.ts': 'export const main = true;',
-        'src/test.spec.ts': 'test code'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--ignore', '**/*.spec.ts'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('src/index.ts');
-      expect(content).not.toContain('src/test.spec.ts');
-    });
-
-    it('should accept ranking strategy option', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--ranking-strategy', 'git-changes'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      await assertFileExists(path.join(tempDir, 'repograph.md'));
-    });
-
-    it('should accept no-gitignore flag', async () => {
-      const files = {
-        'src/index.ts': 'export const main = true;',
-        'dist/index.js': 'compiled code'
-      };
-      await createTestFiles(tempDir, files);
-      await createGitignore(tempDir, ['dist/']);
-
-      const result = await runCLI([
-        tempDir,
-        '--no-gitignore'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('dist/index.js');
-    });
-
-    it('should show help when --help flag is used', async () => {
-      const result = await runCLI(['--help']);
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('Usage:');
-      expect(result.stdout).toContain('Options:');
-    });
-
-    it('should show version when --version flag is used', async () => {
-      const result = await runCLI(['--version']);
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toMatch(/\d+\.\d+\.\d+/);
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should handle non-existent directory', async () => {
-      const nonExistentDir = path.join(tempDir, 'non-existent');
-      const result = await runCLI([nonExistentDir]);
-
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain('Error');
-    });
-
-    it('should handle invalid output directory', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const invalidOutput = '/root/cannot-write-here.md';
-      const result = await runCLI([
-        tempDir,
-        '--output', invalidOutput
-      ]);
-
-      expect(result.exitCode).not.toBe(0);
-    });
-
-    it('should handle invalid ranking strategy', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--ranking-strategy', 'invalid-strategy'
-      ]);
-
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain('Invalid ranking strategy');
-    });
-
-    it('should handle malformed include patterns gracefully', async () => {
-      const files = {
-        'src/index.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--include', '[invalid-pattern'
-      ]);
-
-      // Should not crash, but might produce empty output
-      expect(result.exitCode).toBe(0);
-    });
-  });
-
-  describe('Multiple Arguments', () => {
-    it('should handle multiple include patterns', async () => {
-      const files = {
-        'src/index.ts': 'export const ts = true;',
-        'lib/utils.js': 'export const js = true;',
-        'docs/readme.md': '# Documentation'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--include', '**/*.ts',
-        '--include', '**/*.js'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('src/index.ts');
-      expect(content).toContain('lib/utils.js');
-      expect(content).not.toContain('docs/readme.md');
-    });
-
-    it('should handle multiple ignore patterns', async () => {
-      const files = {
-        'src/index.ts': 'export const main = true;',
-        'src/test.spec.ts': 'test code',
-        'src/utils.test.ts': 'test utils',
-        'src/helper.ts': 'helper code'
-      };
-      await createTestFiles(tempDir, files);
-
-      const result = await runCLI([
-        tempDir,
-        '--ignore', '**/*.spec.ts',
-        '--ignore', '**/*.test.ts'
-      ]);
-
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('src/index.ts');
-      expect(content).toContain('src/helper.ts');
-      expect(content).not.toContain('src/test.spec.ts');
-      expect(content).not.toContain('src/utils.test.ts');
-    });
-  });
-
-  describe('Output Customization Flags', () => {
-    beforeEach(async () => {
-      const files = {
-        'src/index.ts': `import { helper, another, onemore } from './utils.js';
-export function main() { helper(); another(); onemore(); }`,
-        'src/utils.ts': `export function helper() {}
-export function another() {}
-export function onemore() {}`
-      };
-      await createTestFiles(tempDir, files);
-    });
-    
-    const flagTestCases = [
-      { name: 'no-header', args: ['--no-header'], notToContain: '# RepoGraph' },
-      { name: 'no-overview', args: ['--no-overview'], notToContain: '## 🚀 Project Overview' },
-      { name: 'no-mermaid', args: ['--no-mermaid'], notToContain: '```mermaid' },
-      { name: 'no-file-list', args: ['--no-file-list'], notToContain: '### Top 10 Most Important Files' },
-      { name: 'no-symbol-details', args: ['--no-symbol-details'], notToContain: '## 📂 File & Symbol Breakdown' },
-      { name: 'top-file-count', args: ['--top-file-count', '1'], toContain: '### Top 1 Most Important Files' },
-      { name: 'file-section-separator', args: ['--file-section-separator', '***'], toContain: '\n***\n\n' },
-      { name: 'no-symbol-relations', args: ['--no-symbol-relations'], notToContain: '(calls' },
-      { name: 'no-symbol-line-numbers', args: ['--no-symbol-line-numbers'], notToContain: '_L2_' },
-      { name: 'no-symbol-snippets', args: ['--no-symbol-snippets'], notToContain: '```typescript' },
-      { name: 'max-relations-to-show', args: ['--max-relations-to-show', '1'], toContain: 'calls `helper`...', notToContain: '`another`' },
-    ];
-
-    it.each(flagTestCases)('should handle flag $name', async ({ args, toContain, notToContain }) => {
-      await runCLI([tempDir, ...args]);
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      if (toContain) {
-        expect(content).toContain(toContain);
-      }
-      if (notToContain) {
-        expect(content).not.toContain(notToContain);
-      }
-    });
-  });
-
-  describe('Output Validation', () => {
-    it('should generate valid markdown structure', async () => {
-      const files = {
-        'src/calculator.ts': `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
+    return user;
   }
-}`,
-        'src/logger.ts': `export class Logger {
-  log(message: string): void {
-    console.log(message);
-  }
-}`
-      };
-      await createTestFiles(tempDir, files);
+}
+```
 
-      const result = await runCLI([tempDir]);
+#### **After SCN: The Context Map (21 tokens)**
+```scn
+§ (1) services/auth.js
+  -> (utils.js)       // File-level dependency
+  ◇ (1.1) AuthService
+    + @ db: #(Database)
+    + ~ login(email: #, pass: #): #(User) ...!
+```
+**Result:** A **79% reduction** in tokens. We've thrown away implementation details (`if` statements, internal calls) but preserved the essential API surface: the `AuthService` class has a public `login` method that is `async`, can `throw`, and returns a `User`.
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      
-      // Check markdown structure
-      expect(content).toContain('# RepoGraph');
-      expect(content).toContain('## 🚀 Project Overview');
-      expect(content).toContain('### Module Dependency Graph');
-      expect(content).toContain('### Top 10 Most Important Files');
-      expect(content).toContain('## 📂 File & Symbol Breakdown');
-      
-      // Check Mermaid graph
-      expect(containsValidMermaid(content)).toBe(true);
-      
-      // Check symbol details
-      expect(content).toContain('Calculator');
-      expect(content).toContain('Logger');
-    });
+### Example 2: A React Component with CSS
 
-    it('should handle projects with complex dependencies', async () => {
-      const files = {
-        'src/index.ts': `import { Database } from './database.js';
-import { ApiServer } from './api.js';
+#### **Before SCN: Raw Source Code (HTML, CSS - 131 tokens)**
+```jsx
+// Button.jsx
+import './Button.css';
 
-export class App {
-  constructor(
-    private db: Database,
-    private api: ApiServer
-  ) {}
-}`,
-        'src/database.ts': `export class Database {
-  connect(): Promise<void> {
-    return Promise.resolve();
-  }
-}`,
-        'src/api.ts': `import { Database } from './database.js';
+export function Button({ label, onClick }) {
+  return (
+    <button className="btn btn-primary" onClick={onClick}>
+      {label}
+    </button>
+  );
+}
 
-export class ApiServer {
-  constructor(private db: Database) {}
-}`
-      };
-      await createTestFiles(tempDir, files);
+// Button.css
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border: none;
+}
+```
 
-      const result = await runCLI([tempDir]);
+#### **After SCN: The Context Map (38 tokens)**
+```scn
+§ (2) Button.jsx
+  -> (3.0)
+  ◇ (2.1) Button
+    { props: { label:#, onClick:# } }
+    ⛶ (2.2) button [ class:.btn .btn-primary ]
+      -> (3.1), (3.2)
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('App');
-      expect(content).toContain('Database');
-      expect(content).toContain('ApiServer');
-      expect(containsValidMermaid(content)).toBe(true);
-    });
-  });
+§ (3) Button.css
+  <- (2.0)
+  ¶ (3.1) .btn { 📐 ✍ }
+  ¶ (3.2) .btn-primary { 💧 }
+```
+**Result:** A **71% reduction**. The SCN clearly shows that the `Button` component `(2.1)` has a `button` element `(2.2)` which is styled by two separate CSS rules `(3.1, 3.2)`. The LLM now understands the structural link between the JSX and the CSS without seeing a single pixel value.
 
-  describe('Integration with Fixtures', () => {
-    it('should process sample-project fixture via CLI', async () => {
-      const fixture = await loadFixture('sample-project');
-      await createProjectFromFixture(tempDir, fixture);
+### Example 3: A Multi-File Python Application
 
-      const result = await runCLI([
-        tempDir,
-        '--include', '**/*.ts'
-      ]);
+#### **Before SCN: Raw Source Code (118 tokens)**
+```python
+# services.py
+from models import User
+from database import db_session
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('Calculator');
-      expect(content).toContain('Logger');
-      expect(content).toContain('AdvancedCalculator');
-    });
+def get_user_profile(user_id: int) -> User:
+    user = db_session.query(User).get(user_id)
+    return user
 
-    it('should process complex-project fixture via CLI', async () => {
-      const fixture = await loadFixture('complex-project');
-      await createProjectFromFixture(tempDir, fixture);
+# main.py
+from services import get_user_profile
 
-      const result = await runCLI([
-        tempDir,
-        '--include', '**/*.ts',
-        '--ranking-strategy', 'pagerank'
-      ]);
+def main():
+    user = get_user_profile(1)
+    if user:
+        print(f"Hello, {user.name}")
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('Database');
-      expect(content).toContain('ApiServer');
-      expect(content).toContain('UserService');
-    });
+if __name__ == "__main__":
+    main()
+```
+#### **After SCN: The Context Map (31 tokens)**
+```scn
+§ (4) models.py
+  <- (5.0)
+  ◇ (4.1) User
+    + @ id: #(int)
+    + @ name: #(str)
 
-    it('should handle minimal-project fixture via CLI', async () => {
-      const fixture = await loadFixture('minimal-project');
-      await createProjectFromFixture(tempDir, fixture);
+§ (5) services.py
+  -> (4.1), (database.py)
+  <- (6.1)
+  + ~ (5.1) get_user_profile(user_id: #): #(4.1)
 
-      const result = await runCLI([tempDir]);
+§ (6) main.py
+  -> (5.1)
+  ~ (6.1) main()
+    -> (5.1)
+```
+**Result:** A **74% reduction**. The SCN creates a complete dependency graph. It shows that `main.py` calls a function in `services.py`, which in turn depends on the `User` model from `models.py`. An LLM can now reason about the entire application flow.
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('src/main.ts');
-      expect(content).toContain('hello');
-      expect(content).toContain('greet');
-    });
-  });
+---
 
-  describe('Performance', () => {
-    it('should handle moderately large projects in reasonable time', async () => {
-      // Create a project with many files
-      const files: Record<string, string> = {};
-      
-      for (let i = 0; i < 30; i++) {
-        files[`src/module${i}.ts`] = `export class Module${i} {
-  process(): string {
-    return 'module${i}';
-  }
-}`;
-      }
+## 5. The SCN Specification v1.0
 
-      // Add some imports
-      files['src/index.ts'] = Array.from({ length: 30 }, (_, i) => 
-        `import { Module${i} } from './module${i}.js';`
-      ).join('\n') + '\n\nexport const modules = [' + 
-      Array.from({ length: 30 }, (_, i) => `Module${i}`).join(', ') + '];';
+### Core Structure: Files & Entity IDs
+An SCN document is a plain text file representing a project's context.
 
-      await createTestFiles(tempDir, files);
+*   **File Declaration (`§`):** Each file is introduced with a `§` symbol, a unique integer ID, and the file path.
+    `§ (1) path/to/file.js`
+*   **Entity Declaration:** Every significant entity (class, function, etc.) gets a compound ID: `(file_id.entity_id)`.
+    `◇ (1.1) MyClass`
+*   **Dependency Linking (`->`/`<-`):** Relationships are defined by pointing an entity's `->` (dependency) or `<-` (caller) to another entity's unique ID.
+    `~ (1.2) myMethod() -> (2.1)`
 
-      const startTime = Date.now();
-      const result = await runCLI([tempDir]);
-      const endTime = Date.now();
+### Master Symbol Legend
 
-      expect(result.exitCode).toBe(0);
-      expect(endTime - startTime).toBeLessThan(15000); // Should complete within 15 seconds
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('Module0');
-      expect(content).toContain('Module29');
-    });
-  });
+#### General & Structural
+| Symbol | Meaning | Description |
+| :---: | :--- | :--- |
+| `§` | **File Path** | Declares a new source file context. |
+| `->` | **Dependency** | Points to an entity ID that this entity *uses*. |
+| `<-` | **Caller** | Points to an entity ID that *uses* this entity. |
 
-  describe('Real-world Scenarios', () => {
-    it('should work with TypeScript project structure', async () => {
-      const files = {
-        'package.json': JSON.stringify({
-          name: 'my-project',
-          version: '1.0.0',
-          type: 'module',
-          scripts: {
-            build: 'tsc',
-            test: 'bun test'
-          }
-        }, null, 2),
-        'tsconfig.json': JSON.stringify({
-          compilerOptions: {
-            target: 'ES2022',
-            module: 'ESNext',
-            outDir: './dist'
-          }
-        }, null, 2),
-        'src/index.ts': `export { Calculator } from './lib/calculator.js';
-export type { CalculatorOptions } from './types.js';`,
-        'src/lib/calculator.ts': `import type { CalculatorOptions } from '../types.js';
+#### Code Entities (JS, Python, Go, C#, etc.)
+| Symbol | Meaning | Description |
+| :---: | :--- | :--- |
+| `◇` | **Container** | A Class, Struct, Module, or Namespace. |
+| `~` | **Function** | A function, method, or procedure. |
+| `@` | **Variable** | A property, field, constant, or state variable. |
 
-export class Calculator {
-  constructor(private options: CalculatorOptions) {}
-  
-  calculate(expression: string): number {
-    return eval(expression);
-  }
-}`,
-        'src/types.ts': `export interface CalculatorOptions {
-  precision: number;
-  mode: 'strict' | 'loose';
-}`,
-        'README.md': '# My Calculator Project'
-      };
-      await createTestFiles(tempDir, files);
+#### Type System Definitions & References
+| Symbol | Meaning | Description |
+| :---: | :--- | :--- |
+| `{}` | **Interface/Struct** | Defines a data shape, contract, or complex object type. |
+| `☰` | **Enum** | Defines a set of named constant values. |
+| `=:` | **Type Alias** | Assigns a new name to an existing type. |
+| `#` | **Type Reference** | *References* an existing type in a signature or property. |
 
-      const result = await runCLI([
-        tempDir,
-        '--include', 'src/**/*.ts'
-      ]);
+#### Markup (HTML) & Style (CSS)
+| Symbol | Meaning | Description |
+| :---: | :--- | :--- |
+| `⛶` | **HTML Element** | Represents an element tag. Indentation denotes hierarchy. |
+| `¶` | **CSS Rule** | Represents a selector and its associated style block. |
+| `📐` | **Layout Intent** | CSS rule affects geometry (box model, flex, grid, position). |
+| `✍` | **Text Intent** | CSS rule affects typography (font, text styles). |
+| `💧` | **Appearance Intent**| CSS rule affects appearance (color, background, border, shadow). |
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('Calculator');
-      expect(content).toContain('CalculatorOptions');
-      expect(content).not.toContain('package.json');
-      expect(content).not.toContain('README.md');
-    });
+#### Function & Method Qualifiers
+| Symbol | Meaning | Description |
+| :---: | :--- | :--- |
+| `+` / `-` | **Access** | Public (+) or Private (-) visibility. |
+| `...` | **Async** | The function is asynchronous (`await`able). |
+| `!` | **Throws** | The function can throw an exception or return an error. |
+| `o` | **Pure** | The function has no side effects. |
 
-    it('should work with monorepo structure', async () => {
-      const files = {
-        'packages/core/src/index.ts': `export { Engine } from './engine.js';`,
-        'packages/core/src/engine.ts': `export class Engine {
-  start(): void {
-    console.log('Engine started');
-  }
-}`,
-        'packages/ui/src/index.ts': `export { Component } from './component.js';`,
-        'packages/ui/src/component.ts': `import { Engine } from '../../core/src/engine.js';
+---
 
-export class Component {
-  private engine = new Engine();
-  
-  render(): void {
-    this.engine.start();
-  }
-}`,
-        'apps/web/src/main.ts': `import { Component } from '../../../packages/ui/src/component.js';
 
-const component = new Component();
-component.render();`
-      };
-      await createTestFiles(tempDir, files);
+## 7. Detailed Examples by Paradigm
 
-      const result = await runCLI([
-        tempDir,
-        '--include', '**/*.ts'
-      ]);
+#### Object-Oriented Programming (OOP)
+```scn
+§ (10) models/user.ts
+  <- (11.1)
+  ◇ (10.1) User
+    + @ id: #(string)
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('Engine');
-      expect(content).toContain('Component');
-      expect(content).toContain('packages/core/src/engine.ts');
-      expect(content).toContain('packages/ui/src/component.ts');
-      expect(content).toContain('apps/web/src/main.ts');
-    });
+§ (11) services/auth.ts
+  -> (10.1)
+  <- (12.1)
+  ◇ (11.1) AuthService
+    - @ db: #(DB)
+    + ~ login(email: #, pass: #): #(10.1) ...!
+```
+**Shows:** Encapsulation (`- @ db`), dependency injection, and a public method with async/throws qualifiers.
 
-    it('should respect gitignore in real project', async () => {
-      const files = {
-        'src/index.ts': 'export const main = true;',
-        'src/utils.ts': 'export const util = true;',
-        'dist/index.js': 'compiled code',
-        'node_modules/package/index.js': 'dependency',
-        'coverage/lcov.info': 'coverage data',
-        '.env': 'SECRET=value',
-        'logs/app.log': 'log content'
-      };
-      await createTestFiles(tempDir, files);
-      await createGitignore(tempDir, [
-        'dist/',
-        'node_modules/',
-        'coverage/',
-        '.env',
-        'logs/'
-      ]);
+#### Functional Programming (FP)
+```scn
+§ (20) utils/validators.js
+  <- (22.1)
+  + ~ (20.1) isEmail(str: #): #(bool) o
+  + ~ (20.2) isSecure(pwd: #): #(bool) o
 
-      const result = await runCLI([tempDir]);
+§ (21) api/client.js
+  <- (22.1)
+  + ~ (21.1) postUser(data: #): #(Promise) ...!
 
-      expect(result.exitCode).toBe(0);
-      
-      const content = await readFile(path.join(tempDir, 'repograph.md'));
-      expect(content).toContain('src/index.ts');
-      expect(content).toContain('src/utils.ts');
-      expect(content).not.toContain('dist/index.js');
-      expect(content).not.toContain('node_modules/package/index.js');
-      expect(content).not.toContain('coverage/lcov.info');
-      expect(content).not.toContain('.env');
-      expect(content).not.toContain('logs/app.log');
-    });
-  });
-});
+§ (22) pipelines/registration.js
+  -> (20.1), (20.2), (21.1)
+  + ~ (22.1) register(userData: #): #(Result) ...
+```
+**Shows:** Pure functions (`o`), composition (one function `(22.1)` depending on three others), and separation of pure/impure logic.
+
+#### Declarative UI (HTML/CSS)
+```scn
+§ (30) login.html
+  -> (31.0)
+  ⛶ (30.1) form [ id:#login-form ]
+    ⛶ (30.2) input [ class:.input ] -> (31.1)
+    ⛶ (30.3) button [ class:.btn ] -> (31.2)
+
+§ (31) login.css
+  ¶ (31.1) .input { 📐 ✍ }
+  ¶ (31.2) .btn { 📐 ✍ 💧 }
+```
+**Shows:** HTML hierarchy, `class` attributes linking directly to CSS rules, and CSS intent symbols summarizing the purpose of each rule.
+
+---
 ````
 
-## File: repograph/test/unit/high-level.test.ts
-````typescript
-import { describe, it, beforeEach, afterEach, expect } from 'bun:test';
-import { generateMap } from '../../src/high-level.js';
-import type { RepoGraphOptions } from '../../src/types.js';
-import {
-  createTempDir,
-  cleanupTempDir,
-  createTestFiles,
-  assertFileExists,
-  readFile,
-  isValidMarkdown
-} from '../test.util.js';
-import path from 'node:path';
+## File: docs/test.plan.md
+````markdown
+# SCN-TS Test Plan
 
-describe('High-Level API', () => {
-  let tempDir: string;
+This document outlines the testing strategy for `scn-ts`, the reference implementation for Symbolic Context Notation. The tests are categorized by feature area and test type (unit, integration, e2e).
 
-  beforeEach(async () => {
-    tempDir = await createTempDir();
-  });
+---
 
-  afterEach(async () => {
-    await cleanupTempDir(tempDir);
-  });
+## 1. Core SCN Generation (JS/TS Parser)
 
-  describe('generateMap()', () => {
-    it('should be a function', () => {
-      expect(typeof generateMap).toBe('function');
-    });
+This section focuses on the correctness of the SCN output for various JavaScript and TypeScript language features. These tests are primarily **unit tests**, feeding source code snippets to the parser and asserting the resulting SCN AST/string.
 
-    it('should accept RepoGraphOptions parameter', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+### 1.1. General & Structural Symbols
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'test.md')
-      };
+-   `[unit]` it should generate a `§` file declaration with a unique ID and correct relative path for each file.
+-   `[unit]` it should assign unique, incrementing entity IDs within a file, starting from 1 (e.g., `(1.1)`, `(1.2)`).
+-   `[unit]` it should represent a direct import of another entity with `-> (file_id.entity_id)`.
+-   `[unit]` it should represent a dependency on an entire file (e.g., side-effect import `import './style.css'`) with a `.0` entity ID: `-> (file_id.0)`.
+-   `[unit]` it should support linking to multiple entities on one line (e.g. `-> (3.1), (3.2)`).
+-   `[integration]` it should resolve and add `<- (caller_file.caller_entity)` annotations to entities that are used by other entities.
 
-      await generateMap(options);
-      // If we get here without throwing, the test passes
-    });
+### 1.2. Inter-File Dependency Graphs
 
-    it('should use default values for missing options', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+-   `[integration]` it should add a summary of file-level dependencies on the `§` file declaration line itself (e.g., `§ (1) a.ts -> (2.0), (3.1)`).
+-   `[integration]` it should add a summary of file-level callers on the `§` file declaration line (e.g., `§ (2) b.ts <- (1.0)`).
+-   `[integration]` it should correctly resolve and represent a multi-step dependency chain across three or more files (e.g., `A.ts -> B.ts -> C.ts`).
+-   `[integration]` it should resolve dependencies used inside a function's body and link them from that function's entity, not just from the file's top-level imports.
 
-      const originalCwd = process.cwd();
-      
-      try {
-        process.chdir(tempDir);
-        await generateMap();
-        await assertFileExists(path.join(tempDir, 'repograph.md'));
-      } finally {
-        process.chdir(originalCwd);
-      }
-    });
+### 1.3. Code Entities (Classes, Functions, Variables)
 
-    it('should validate ranking strategy option', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+-   `[unit]` it should represent a `class`, TypeScript `namespace`, or an exported object literal (module pattern) with the `◇` symbol.
+-   `[unit]` it should represent an `interface` declaration with the `{}` symbol.
+-   `[unit]` it should represent an `export function` with the `+ ~` symbols.
+-   `[unit]` it should represent a `const myFunction = () => {}` with the `~` symbol.
+-   `[unit]` it should represent a class `method` with the `~` symbol.
+-   `[unit]` it should represent a class `property` or `field` with the `@` symbol.
+-   `[unit]` it should represent a top-level `const` variable with the `@` symbol.
+-   `[unit]` it should correctly handle `export default class/function`.
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'test.md'),
-        rankingStrategy: 'invalid-strategy' as any
-      };
+### 1.4. Type System Symbols
 
-      await expect(generateMap(options)).rejects.toThrow('Invalid ranking strategy');
-    });
+-   `[unit]` it should represent an `enum` with the `☰` symbol.
+-   `[unit]` it should represent a `type` alias (`type ID = string`) with the `=:` symbol.
+-   `[unit]` it should represent a type reference in a function signature or property with the `#` symbol (e.g., `id: string` becomes `id: #`).
+-   `[unit]` it should correctly represent complex types like `Promise<User>` as `#(Promise<User>)`.
 
-    it('should accept valid ranking strategies', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+### 1.5. Function & Method Qualifiers
 
-      const pageRankOptions: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'pagerank.md'),
-        rankingStrategy: 'pagerank'
-      };
+-   `[unit]` it should prefix `public` members with `+`.
+-   `[unit]` it should prefix `private` members with `-`.
+-   `[unit]` it should append `...` to an `async` function or method.
+-   `[unit]` it should append `!` to a function that has a `throw` statement in its body.
+-   `[unit]` it should correctly handle functions that are both `async` and can `throw` (e.g., `... !`).
+-   `[unit]` it should append `o` to a pure function (one with no side-effects).
 
-      const gitOptions: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'git.md'),
-        rankingStrategy: 'git-changes'
-      };
+### 1.6. JS/TS Specifics (including JSX)
 
-      await generateMap(pageRankOptions);
-      await generateMap(gitOptions);
-      // If we get here without throwing, the test passes
-    });
+-   `[unit]` it should correctly parse a React functional component with props as `◇ (id) MyComponent { props: { p1:#, p2:# } }`.
+-   `[unit]` it should represent a JSX element like `<button>` with the `⛶` symbol.
+-   `[unit]` it should represent JSX hierarchy with indentation.
+-   `[unit]` it should link a JSX element's `className` to a CSS file import.
+-   `[unit]` it should correctly parse various export syntaxes (`export {}`, `export default`, `export * from`).
+-   `[unit]` it should correctly parse various import syntaxes (`import X`, `import {Y}`, `import * as Z`).
 
-    it('should pass through all options to pipeline', async () => {
-      const files = {
-        'src/index.ts': 'export const ts = true;',
-        'src/index.js': 'export const js = true;',
-        'src/test.spec.ts': 'test code'
-      };
-      await createTestFiles(tempDir, files);
+### 1.7. CSS Parsing
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'filtered.md'),
-        include: ['**/*.ts'],
-        ignore: ['**/*.spec.ts'],
-        noGitignore: true,
-        rankingStrategy: 'pagerank',
-        rendererOptions: {
-          customHeader: '# Custom Header',
-          includeMermaidGraph: false,
-          includeSymbolDetails: false
-        }
-      };
+-   `[unit]` it should generate a `¶` CSS Rule for each selector in a CSS file.
+-   `[integration]` it should correctly create `-> (css_file.rule_id)` links from a `⛶` JSX element to the corresponding `¶` CSS rule based on `className` or `id`.
+-   `[integration]` it should correctly create `<- (jsx_file.element_id)` links on a `¶` CSS rule pointing back to the `⛶` JSX element that uses it.
+-   `[unit]` it should include the `📐` layout intent symbol for rules containing box model, flex, grid, or positioning properties.
+-   `[unit]` it should include the `✍` text intent symbol for rules containing font or text styling properties.
+-   `[unit]` it should include the `💧` appearance intent symbol for rules containing color, background, border, or shadow properties.
+-   `[unit]` it should correctly handle a rule having multiple intents (e.g., `{ 📐 ✍ 💧 }`).
 
-      await generateMap(options);
+---
 
-      const content = await readFile(path.join(tempDir, 'filtered.md'));
-      expect(content).toStartWith('# Custom Header');
-      expect(content).toContain('src/index.ts');
-      expect(content).not.toContain('src/index.js');
-      expect(content).not.toContain('src/test.spec.ts');
-      expect(content).not.toContain('```mermaid');
-    });
+## 2. Programmatic API
 
-    it('should handle relative paths correctly', async () => {
-      const files = {
-        'project/src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+This section focuses on testing the exposed Node.js API for programmatic use. These are primarily **integration tests**.
 
-      const projectDir = path.join(tempDir, 'project');
-      const relativePath = path.relative(process.cwd(), projectDir);
+### 2.1. High-Level API (`generateScn`)
 
-      const options: RepoGraphOptions = {
-        root: relativePath,
-        output: path.join(tempDir, 'relative.md')
-      };
+-   `[integration]` it should generate a valid SCN string given a set of `include` globs.
+-   `[integration]` it should respect `exclude` patterns.
+-   `[integration]` it should use the `project` tsconfig path for better type analysis.
+-   `[integration]` it should throw an error for invalid options or non-existent files.
 
-      await generateMap(options);
-      await assertFileExists(path.join(tempDir, 'relative.md'));
-    });
+### 2.2. Low-Level API
 
-    it('should create output directory if it does not exist', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+-   `[integration]` `loadFiles`: it should correctly read files from disk based on glob patterns.
+-   `[integration]` `parse`: it should take file content and produce an array of SCN ASTs.
+-   `[integration]` `buildGraph`: it should take SCN ASTs and create a single, resolved graph with correct entity IDs and relationships.
+-   `[integration]` `serializeGraph`: it should take a resolved graph and produce a spec-compliant SCN string.
 
-      const nestedOutput = path.join(tempDir, 'nested', 'deep', 'output.md');
-      
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: nestedOutput
-      };
+---
 
-      await generateMap(options);
-      await assertFileExists(nestedOutput);
-    });
+## 3. Command-Line Interface (CLI)
 
-    it('should handle empty projects gracefully', async () => {
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'empty.md')
-      };
+This section covers the `scn-ts` executable. These are **end-to-end (e2e) tests** that run the CLI as a subprocess and inspect its output and side effects.
 
-      await generateMap(options);
+-   `[e2e]` it should process glob patterns provided as arguments.
+-   `[e2e]` it should write the output to the file specified by `--output <path>` or `-o <path>`.
+-   `[e2e]` it should print the output to stdout if no output path is given.
+-   `[e2e]` it should respect the tsconfig file specified by `--project <path>` or `-p <path>`.
+-   `[e2e]` it should respect the config file specified by `--config <path>` or `-c <path>`.
+-   `[e2e]` it should override config file settings with CLI flags.
+-   `[e2e]` it should display the correct version with `--version` or `-v`.
+-   `[e2e]` it should display the help screen with `--help` or `-h`.
+-   `[e2e]` it should exit with a non-zero code on error (e.g., file not found, parse error).
 
-      const content = await readFile(path.join(tempDir, 'empty.md'));
-      expect(isValidMarkdown(content)).toBe(true);
-      expect(content).toContain('This repository contains 0 nodes (0 files)');
-    });
+---
 
-    it('should handle projects with only non-code files', async () => {
-      const files = {
-        'README.md': '# Project',
-        'package.json': '{"name": "test"}',
-        'LICENSE': 'MIT License'
-      };
-      await createTestFiles(tempDir, files);
+## 4. Configuration (`scn.config.js`)
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'non-code.md'),
-        include: ['**/*.ts', '**/*.js'] // Only include code files
-      };
+This section tests the tool's ability to be configured via a `scn.config.js` file. These are **integration tests**.
 
-      await generateMap(options);
+-   `[integration]` it should automatically find and load `scn.config.js` from the project root.
+-   `[integration]` it should correctly apply `include` patterns from the config.
+-   `[integration]` it should correctly apply `exclude` patterns from the config, overriding includes.
+-   `[integration]` it should use the `project` path from the config.
+-   `[integration]` it should write to the `output` path specified in the config.
 
-      const content = await readFile(path.join(tempDir, 'non-code.md'));
-      expect(content).toContain('This repository contains 0 nodes (0 files)');
-    });
-  });
+---
 
-  describe('Error Handling', () => {
-    it('should throw error for non-existent root directory', async () => {
-      const options: RepoGraphOptions = {
-        root: path.join(tempDir, 'non-existent'),
-        output: path.join(tempDir, 'error.md')
-      };
+## 5. File System & Watch Mode
 
-      await expect(generateMap(options)).rejects.toThrow();
-    });
+This section tests file system interactions, particularly watch mode. These are **e2e tests**.
 
-    it('should throw error for invalid output path', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
+-   `[e2e]` `--watch`: it should start in watch mode and perform an initial scan.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is modified.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a new file matching the glob is added.
+-   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is deleted.
+-   `[e2e]` it should handle file paths with spaces or special characters correctly.
+````
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: '/root/cannot-write-here.md'
-      };
-
-      await expect(generateMap(options)).rejects.toThrow();
-    });
-
-    it('should handle malformed include patterns gracefully', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'malformed.md'),
-        include: ['[invalid-pattern']
-      };
-
-      // Should not throw, but may result in empty output
-      await generateMap(options);
-    });
-
-    it('should validate renderer options', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'test.md'),
-        rendererOptions: {
-          customHeader: '', // Empty header should be handled
-          includeMermaidGraph: true,
-          includeSymbolDetails: true
-        }
-      };
-
-      await generateMap(options);
-    });
-  });
-
-  describe('Option Validation', () => {
-    it('should accept all valid RepoGraphOptions properties', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const completeOptions: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'complete.md'),
-        include: ['**/*.ts'],
-        ignore: ['**/*.spec.ts'],
-        noGitignore: false,
-        rankingStrategy: 'pagerank',
-        rendererOptions: {
-          customHeader: '# Test Project',
-          includeMermaidGraph: true,
-          includeSymbolDetails: true
-        }
-      };
-
-      await generateMap(completeOptions);
-    });
-
-    it('should handle partial options correctly', async () => {
-      const files = {
-        'src/test.ts': 'export const test = true;'
-      };
-      await createTestFiles(tempDir, files);
-
-      const minimalOptions: RepoGraphOptions = {
-        root: tempDir
-      };
-
-      await generateMap(minimalOptions);
-    });
-
-    it('should handle empty options object', async () => {
-      const originalCwd = process.cwd();
-      
-      try {
-        process.chdir(tempDir);
-        
-        const files = {
-          'src/test.ts': 'export const test = true;'
-        };
-        await createTestFiles(tempDir, files);
-
-        await generateMap({});
-      } finally {
-        process.chdir(originalCwd);
-      }
-    });
-  });
-
-  describe('Integration with Components', () => {
-    it('should use default pipeline components', async () => {
-      const files = {
-        'src/calculator.ts': `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
+## File: package.json
+````json
+{
+  "name": "scn-ts",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "repograph": "^0.1.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
-}`,
-        'src/index.ts': `import { Calculator } from './calculator.js';
-export { Calculator };`
-      };
-      await createTestFiles(tempDir, files);
+}
+````
 
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'default-components.md')
-      };
+## File: tsconfig.json
+````json
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
 
-      await generateMap(options);
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
 
-      const content = await readFile(path.join(tempDir, 'default-components.md'));
-      
-      // Should contain results from all pipeline stages
-      expect(content).toContain('Calculator'); // From analysis
-      expect(content).toContain('```mermaid'); // From rendering
-      expect(content).toContain('src/calculator.ts'); // From discovery
-    });
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
 
-    it('should work with different ranking strategies', async () => {
-      const files = {
-        'src/hub.ts': 'export class Hub {}',
-        'src/a.ts': `import { Hub } from './hub.js';`,
-        'src/b.ts': `import { Hub } from './hub.js';`
-      };
-      await createTestFiles(tempDir, files);
-
-      const pageRankOptions: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'pagerank.md'),
-        rankingStrategy: 'pagerank'
-      };
-
-      const gitOptions: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'git.md'),
-        rankingStrategy: 'git-changes'
-      };
-
-      await generateMap(pageRankOptions);
-      await generateMap(gitOptions);
-
-      const pageRankContent = await readFile(path.join(tempDir, 'pagerank.md'));
-      const gitContent = await readFile(path.join(tempDir, 'git.md'));
-
-      expect(isValidMarkdown(pageRankContent)).toBe(true);
-      expect(isValidMarkdown(gitContent)).toBe(true);
-      
-      // Both should contain the same files but potentially different rankings
-      expect(pageRankContent).toContain('Hub');
-      expect(gitContent).toContain('Hub');
-    });
-  });
-
-  describe('Performance', () => {
-    it('should handle reasonable project sizes efficiently', async () => {
-      const files: Record<string, string> = {};
-      
-      // Create 20 files with some dependencies
-      for (let i = 0; i < 20; i++) {
-        files[`src/module${i}.ts`] = `export class Module${i} {
-  getValue(): number {
-    return ${i};
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
   }
-}`;
-      }
-
-      // Add an index file that imports everything
-      files['src/index.ts'] = Array.from({ length: 20 }, (_, i) => 
-        `import { Module${i} } from './module${i}.js';`
-      ).join('\n');
-
-      await createTestFiles(tempDir, files);
-
-      const startTime = Date.now();
-      
-      const options: RepoGraphOptions = {
-        root: tempDir,
-        output: path.join(tempDir, 'performance.md')
-      };
-
-      await generateMap(options);
-      
-      const endTime = Date.now();
-      const duration = endTime - startTime;
-
-      expect(duration).toBeLessThan(5000); // Should complete within 5 seconds
-
-      const content = await readFile(path.join(tempDir, 'performance.md'));
-      expect(content).toContain('Module0');
-      expect(content).toContain('Module19');
-    });
-  });
-});
+}
 ````

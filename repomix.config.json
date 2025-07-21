@@ -23,16 +23,10 @@
     }
   },
   "include": [
-    // "package.json",
-    // "tsconfig.json",
-    // "src",
-
-    // "repograph/package.json",
-    // "repograph/tsconfig.json",
-    // "repograph/tsconfig.build.json",
-    // "repograph/src"
-    "repograph/test/e2e/cli.test.ts",
-    "repograph/test/unit/high-level.test.ts"
+    "package.json",
+    "tsconfig.json",
+    "docs/test.plan.md",
+    "docs/scn.readme.md"
   ],
   "ignore": {
     "useGitignore": true,
