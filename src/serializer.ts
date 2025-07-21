@@ -304,7 +304,7 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
   const signature = formatSignature(node);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
-  const indent = '  '.repeat(level);
+  const indent = '  '.repeat(level + 1);
 
   // Build the main line: qualifiers symbol id name signature
   const parts = [];
@@ -372,54 +372,54 @@ const serializeFile = (
       const targetScnId = idManager.getScnId(targetId);
       return `(${targetScnId}.0)`;
     }).sort().join(', ');
-    return ` ${prefix} ${links}`;
+    if (!links) return '';
+    return `\n  ${prefix} ${links}`;
   };
 
   const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
   const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
 
   let header = `§ (${scnId}) ${fileNode.filePath}`;
-  header += formatFileLinks('->', fileDependencies);
-  header += formatFileLinks('<-', fileCallers);
+  const fileDepLine = formatFileLinks('->', fileDependencies);
+  if (fileDepLine) header += fileDepLine;
+  const fileCallerLine = formatFileLinks('<-', fileCallers);
+  if (fileCallerLine) header += fileCallerLine;
 
   // Hierarchical rendering
-  const allEdges = graph.edges as CodeEdge[];
-  const topLevelSymbols: CodeNode[] = [];
+  const nodeWrappers = symbols.map(s => ({ node: s, children: [] as {node: CodeNode, children: any[]}[] })).sort((a,b) => a.node.startLine - b.node.startLine);
+  const nodeMap = new Map(nodeWrappers.map(w => [w.node.id, w]));
+  const topLevelSymbols: typeof nodeWrappers = [];
 
-  const childNodeIds = new Set<string>();
-  for (const edge of allEdges) {
-    if (edge.type === 'contains' && edge.fromId !== fileNode.id) {
-        const fromNode = graph.nodes.get(edge.fromId);
-        if (fromNode && fromNode.filePath === fileNode.filePath) {
-             childNodeIds.add(edge.toId);
+  for (let i = 0; i < nodeWrappers.length; i++) {
+    const currentWrapper = nodeWrappers[i];
+    let parentWrapper = null;
+    
+    // Find the tightest parent by looking backwards through the sorted list
+    for (let j = i - 1; j >= 0; j--) {
+        const potentialParentWrapper = nodeWrappers[j];
+        if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
+            parentWrapper = potentialParentWrapper;
+            break;
         }
     }
-  }
-
-  for (const symbol of symbols) {
-    if (!childNodeIds.has(symbol.id)) {
-        topLevelSymbols.push(symbol);
+    
+    if (parentWrapper) {
+        parentWrapper.children.push(currentWrapper);
+    } else {
+        topLevelSymbols.push(currentWrapper);
     }
   }
-  
-  topLevelSymbols.sort((a, b) => a.startLine - b.startLine);
 
   const nodeLines: string[] = [];
-  const processNode = (node: CodeNode, level: number) => {
-    nodeLines.push(formatNode(node, graph, idManager, rootDir, level));
-    const children = allEdges
-      .filter(e => e.type === 'contains' && e.fromId === node.id)
-      .map(e => graph.nodes.get(e.toId))
-      .filter((n): n is CodeNode => !!n)
-      .sort((a,b) => a.startLine - b.startLine);
-    
-    for (const child of children) {
-      processNode(child, level + 1);
+  const processNode = (wrapper: {node: CodeNode, children: any[]}, level: number) => {
+    nodeLines.push(formatNode(wrapper.node, graph, idManager, rootDir, level));
+    for (const childWrapper of wrapper.children) {
+      processNode(childWrapper, level + 1);
     }
   };
 
-  for (const node of topLevelSymbols) {
-    processNode(node, 0);
+  for (const wrapper of topLevelSymbols) {
+    processNode(wrapper, 0);
   }
 
   return [header, ...nodeLines].join('\n');

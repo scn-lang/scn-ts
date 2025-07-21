@@ -18,7 +18,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyClass');
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
   });
 
   it('should represent a namespace with ◇', async () => {
@@ -27,7 +27,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyNamespace');
+    expect(scn).toContain('  + ◇ (1.1) MyNamespace');
   });
 
   it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
@@ -36,7 +36,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain(`+ ◇ (1.1) MyModule { key: 'value' }`);
+    expect(scn).toContain(`  + ◇ (1.1) MyModule { key: 'value' }`);
   });
 
   it('should represent an interface with {}', async () => {
@@ -45,7 +45,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ {} (1.1) MyInterface');
+    expect(scn).toContain('  + {} (1.1) MyInterface');
   });
 
   it('should represent an export function with + ~', async () => {
@@ -54,7 +54,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ~ (1.1) myFunc()');
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
   });
 
   it('should represent a const arrow function with ~', async () => {
@@ -63,7 +63,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('~ (1.1) myFunc () => {}');
+    expect(scn).toContain('  ~ (1.1) myFunc()');
   });
 
   it('should represent a class method with ~ and a property with @', async () => {
@@ -78,8 +78,8 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ @ (1.2) myProp');
-    expect(scn).toContain('+ ~ (1.3) myMethod()');
+    expect(scn).toContain('    + @ (1.2) myProp');
+    expect(scn).toContain('    + ~ (1.3) myMethod()');
   });
 
   it('should represent a top-level const with @', async () => {
@@ -89,7 +89,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       include: [`**/*.ts`],
     });
     // Note: repograph represents this as a "variable" and heuristic makes it not a container
-    expect(scn).toContain('@ (1.1) myVar = 123');
+    expect(scn).toContain('  @ (1.1) myVar = 123');
   });
 
   it('should correctly handle export default class', async () => {
@@ -98,7 +98,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyClass');
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
   });
 
   it('should correctly handle export default function', async () => {
@@ -107,6 +107,6 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ~ (1.1) myFunc()');
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
   });
 });

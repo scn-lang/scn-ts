@@ -26,20 +26,25 @@
     "package.json",
     "tsconfig.json",
     "src",
-    "docs/test.plan.md",
+    // "docs/test.plan.md",
     "docs/scn.readme.md",
-    "test",
+    // "test",
 
-    // "repograph/package.json",
-    // "repograph/tsconfig.json",
-    // "repograph/tsconfig.build.json",
-    // "repograph/src",
+    "test/ts/integration/dependency-graph.test.ts",
+    "test/ts/integration/css-parsing.test.ts",
+    "test/ts/unit/code-entities.test.ts",
+
+    "repograph/package.json",
+    "repograph/tsconfig.json",
+    "repograph/tsconfig.build.json",
+    "repograph/src",
   ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
     "customPatterns": [
-
+      "repograph/src/utils",
+      "repograph/src/composer.ts"
     ]
   },
   "security": {
