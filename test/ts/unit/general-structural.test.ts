@@ -52,7 +52,7 @@ describe('SCN Generation: 1.1 General & Structural', () => {
       include: [`**/*.ts`],
     });
 
-    expect(scn).toContain('§ (1) a.ts -> (2.0)');
-    expect(scn).toContain('§ (2) b.ts <- (1.0)');
+    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+    expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
   });
 });

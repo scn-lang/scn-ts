@@ -271,10 +271,6 @@ const formatSignature = (node: CodeNode): string => {
       if (node.codeSnippet.startsWith('{') && node.codeSnippet.endsWith('}')) {
         return node.codeSnippet;
       }
-      // If it's a reference to another variable, don't show the assignment
-      if (!node.codeSnippet.startsWith('{')) {
-        return '';
-      }
     }
     
     // For regular variables/constants, add = prefix if needed

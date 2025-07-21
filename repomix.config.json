@@ -25,19 +25,25 @@
   "include": [
     "package.json",
     "tsconfig.json",
-    "src",
+    // "src",
     // "docs/test.plan.md",
     "docs/scn.readme.md",
     // "test",
+       "src/serializer.ts",
 
     "test/ts/integration/dependency-graph.test.ts",
     "test/ts/integration/css-parsing.test.ts",
     "test/ts/unit/code-entities.test.ts",
+    "test/ts/unit/general-structural.test.ts",
 
     "repograph/package.json",
     "repograph/tsconfig.json",
     "repograph/tsconfig.build.json",
-    "repograph/src",
+    // "repograph/src",
+    //
+    "repograph/src/pipeline/analyze.ts",
+    "repograph/src/tree-sitter/language-config.ts",
+
   ],
   "ignore": {
     "useGitignore": true,

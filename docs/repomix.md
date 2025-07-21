@@ -6,23 +6,12 @@ repograph/
   src/
     pipeline/
       analyze.ts
-      discover.ts
-      rank.ts
-      render.ts
     tree-sitter/
       language-config.ts
-      languages.ts
-      queries.ts
-    types/
-      graphology-pagerank.d.ts
-    high-level.ts
-    index.ts
-    types.ts
   package.json
   tsconfig.build.json
   tsconfig.json
 src/
-  index.ts
   serializer.ts
 test/
   ts/
@@ -31,6 +20,7 @@ test/
       dependency-graph.test.ts
     unit/
       code-entities.test.ts
+      general-structural.test.ts
 package.json
 tsconfig.json
 ```
@@ -344,6 +334,24 @@ const getNodeText = (node: TSNode, content: string): string => content.slice(nod
 const getLineFromIndex = (content: string, index: number): number => content.substring(0, index).split('\n').length;
 const normalizePath = (p: string): string => p.replace(/\\/g, '/');
 
+const getCssIntents = (ruleNode: TSNode, content: string): readonly ('layout' | 'typography' | 'appearance')[] => {
+  const intents = new Set<'layout' | 'typography' | 'appearance'>();
+  const layoutProps = /^(display|position|flex|grid|width|height|margin|padding|transform|align-|justify-)/;
+  const typographyProps = /^(font|text-|line-height|letter-spacing|word-spacing)/;
+  const appearanceProps = /^(background|border|box-shadow|opacity|color|fill|stroke|cursor)/;
+
+  const block = ruleNode.childForFieldName('body') ?? ruleNode.namedChildren.find(c => c.type === 'block');
+  for (const declaration of block?.namedChildren ?? []) {
+    if (declaration.type === 'declaration') {
+      const propName = getNodeText(declaration.childForFieldName('property')!, content);
+      if (layoutProps.test(propName)) intents.add('layout');
+      if (typographyProps.test(propName)) intents.add('typography');
+      if (appearanceProps.test(propName)) intents.add('appearance');
+    }
+  }
+  return Array.from(intents).sort();
+};
+
 // --- LANGUAGE-SPECIFIC LOGIC ---
 
 type LanguageHandler = {
@@ -616,14 +624,14 @@ const languageHandlers: Record<string, Partial<LanguageHandler>> = {
   },
   typescript: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   javascript: {
     resolveImport: createModuleResolver(['.js', '.jsx', '.mjs', '.cjs']),
   },
   tsx: {
     ...tsLangHandler,
-    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
+    resolveImport: createModuleResolver(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.css']),
   },
   python: { 
     ...pythonHandler, 
@@ -852,6 +860,8 @@ function processSymbol(
     const canThrow = childCaptures.some(c => c.name === 'qualifier.throws');
     const isHtmlElement = symbolType === 'html_element';
     const isCssRule = symbolType === 'css_rule';
+    
+    const cssIntents = isCssRule ? getCssIntents(node, file.content) : undefined;
 
     const parametersNode = qualifiers['symbol.parameters'];
     const parameters =
@@ -893,6 +903,7 @@ function processSymbol(
       ...(canThrow && { canThrow: true }),
       ...(isHtmlElement && { htmlTag: symbolName }),
       ...(isCssRule && { cssSelector: symbolName }),
+      ...(cssIntents && { cssIntents }),
     });
   }
 }
@@ -921,6 +932,29 @@ function processFileRelationships(
         const edge: CodeEdge = { fromId: file.path, toId: importedFilePath, type: 'imports' };
         if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId && e.type === edge.type)) {
           graph.edges.push(edge);
+        }
+      }
+      continue;
+    }
+
+    if (name === 'css.class.reference' || name === 'css.id.reference') {
+      const fromId = findEnclosingSymbolId(node, file, graph.nodes);
+      if (!fromId) continue;
+
+      const fromNode = graph.nodes.get(fromId);
+      if (fromNode?.type !== 'html_element') continue;
+
+      const text = getNodeText(node, file.content).replace(/['"`]/g, '');
+      const prefix = name === 'css.id.reference' ? '#' : '.';
+      const selectors = (prefix === '.') ? text.split(' ').filter(Boolean).map(s => '.' + s) : [prefix + text];
+
+      for (const selector of selectors) {
+        const toNode = Array.from(graph.nodes.values()).find(n => n.type === 'css_rule' && n.cssSelector === selector);
+        if (toNode) {
+          const edge: CodeEdge = { fromId, toId: toNode.id, type: 'calls' };
+          if (!graph.edges.some(e => e.fromId === edge.fromId && e.toId === edge.toId)) {
+            graph.edges.push(edge);
+          }
         }
       }
       continue;
@@ -1039,363 +1073,6 @@ function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: Read
   }
   return file.path; // Fallback to file node
 }
-````
-
-## File: repograph/src/pipeline/discover.ts
-````typescript
-import { globby } from 'globby';
-import path from 'node:path';
-import { realpath } from 'node:fs/promises';
-import Ignore from 'ignore';
-import type { FileContent, FileDiscoverer } from '../types.js';
-import { isDirectory, readFile } from '../utils/fs.util.js';
-import { FileSystemError } from '../utils/error.util.js';
-import { logger } from '../utils/logger.util.js';
-
-/**
- * Creates the default file discoverer. It uses globby to find all files,
- * respecting .gitignore patterns and custom include/exclude rules.
- * @returns A FileDiscoverer function.
- */
-export const createDefaultDiscoverer = (): FileDiscoverer => {
-  return async ({ root, include, ignore, noGitignore = false }) => {
-    try {
-      if (!(await isDirectory(root))) {
-        throw new FileSystemError('Root path is not a directory or does not exist', root);
-      }
-    } catch (e) {
-      throw e;
-    }
-    const patterns = include && include.length > 0 ? [...include] : ['**/*'];
-    
-    // Use the ignore package for proper gitignore handling
-    const ignoreFilter = Ignore();
-    
-    // Always ignore node_modules and .git
-    ignoreFilter.add('**/node_modules/**');
-    ignoreFilter.add('**/.git/**');
-    ignoreFilter.add('.gitignore');
-    
-    // Add .gitignore patterns if not disabled
-    if (!noGitignore) {
-      let gitignoreContent = '';
-      try {
-        gitignoreContent = await readFile(path.join(root, '.gitignore'));
-      } catch {
-        // .gitignore is optional, so we can ignore errors here.
-      }
-      if (gitignoreContent) {
-        ignoreFilter.add(gitignoreContent);
-      }
-    }
-    
-    // Add user-specified ignore patterns
-    if (ignore && ignore.length > 0) {
-      ignoreFilter.add(ignore.join('\n'));
-    }
-
-    // Use globby to find all files matching the include patterns.
-    // Globby might return absolute paths if the patterns are absolute. We ensure
-    // all paths are absolute first, then make them relative to the root for
-    // consistent processing, which is required by the `ignore` package.
-    const foundPaths = await globby(patterns, {
-      cwd: root,
-      gitignore: false, // We handle gitignore patterns manually
-      dot: true,
-      absolute: true,
-      followSymbolicLinks: true,
-      onlyFiles: true,
-    });
-
-    const relativePaths = foundPaths.map(p => path.relative(root, p).replace(/\\/g, '/'));
-
-    // Filter out files that would cause symlink cycles
-    const visitedRealPaths = new Set<string>();
-    const safeRelativePaths: string[] = [];
-    
-    for (const relativePath of relativePaths) {
-      const fullPath = path.resolve(root, relativePath);
-      try {
-        const realPath = await realpath(fullPath);
-        if (!visitedRealPaths.has(realPath)) {
-          visitedRealPaths.add(realPath);
-          safeRelativePaths.push(relativePath);
-        }
-      } catch (error) {
-        // If we can't resolve the real path, skip this file
-        logger.debug(`Skipping file due to symlink resolution error: ${relativePath}`);
-      }
-    }
-    
-    // Filter the paths using the ignore package. Paths are now guaranteed to be relative.
-    const filteredPaths = safeRelativePaths.filter(p => !ignoreFilter.ignores(p));
-
-    const fileContents = await Promise.all(
-      filteredPaths.map(async (relativePath): Promise<FileContent | null> => {
-        try {
-          const absolutePath = path.join(root, relativePath);
-          const content = await readFile(absolutePath);
-          return { path: relativePath, content };
-        } catch (e) {
-          logger.debug(`Skipping file that could not be read: ${relativePath}`, e instanceof Error ? e.message : e);
-          return null;
-        }
-      })
-    );
-
-    return fileContents.filter((c): c is FileContent => c !== null);
-  };
-};
-````
-
-## File: repograph/src/pipeline/rank.ts
-````typescript
-import pagerank from 'graphology-pagerank';
-import type { CodeGraph, Ranker, RankedCodeGraph } from '../types.js';
-import Graph from 'graphology';
-import { execSync } from 'node:child_process';
-import { logger } from '../utils/logger.util.js';
-
-/**
- * Creates a ranker that uses the PageRank algorithm. Nodes that are heavily referenced by
- * other important nodes will receive a higher rank.
- * @returns A Ranker function.
- */
-export const createPageRanker = (): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    // PageRank can only be computed on graphs with nodes.
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks: new Map() };
-    }
-
-    // Pagerank lib requires a graphology instance.
-    const simpleGraph = new Graph({ type: 'directed' });
-    for (const [nodeId, node] of graph.nodes) {
-      simpleGraph.addNode(nodeId, node);
-    }
-    for (const edge of graph.edges) {
-      if (!simpleGraph.hasEdge(edge.fromId, edge.toId)) {
-        simpleGraph.addDirectedEdge(edge.fromId, edge.toId);
-      }
-    }
-
-    const graphForRank = simpleGraph;
-    const ranksData = pagerank(graphForRank);
-    const ranks = new Map<string, number>();
-    for (const node in ranksData) {
-      ranks.set(node, ranksData[node] ?? 0);
-    }
-    return { ...graph, ranks };
-  };
-};
-
-/**
- * Creates a ranker based on Git commit history. Files changed more frequently are considered
- * more important. Requires Git to be installed.
- * @returns A Ranker function.
- */
-export const createGitRanker = (options: { maxCommits?: number } = {}): Ranker => {
-  return async (graph: CodeGraph): Promise<RankedCodeGraph> => {
-    const { maxCommits = 500 } = options;
-    const ranks = new Map<string, number>();
-
-    if (graph.nodes.size === 0) {
-      return { ...graph, ranks };
-    }
-
-    try {
-      const command = `git log --max-count=${maxCommits} --name-only --pretty=format:`;
-      const output = execSync(command, { encoding: 'utf-8' });
-      const files = output.split('\n').filter(Boolean);
-
-      const changeCounts: Record<string, number> = {};
-      for (const file of files) {
-        changeCounts[file] = (changeCounts[file] || 0) + 1;
-      }
-
-      const maxChanges = Math.max(...Object.values(changeCounts), 1);
-
-      for (const [nodeId, attributes] of graph.nodes) {
-        // We only rank file nodes with this strategy
-        if (attributes.type === 'file') {
-          const count = changeCounts[attributes.filePath] ?? 0;
-          ranks.set(nodeId, count / maxChanges); // Normalize score
-        } else {
-          ranks.set(nodeId, 0);
-        }
-      }
-    } catch (e) {
-      // This is not a fatal error for the whole process, but this ranker cannot proceed.
-      logger.warn('Failed to use \'git\' for ranking. Is git installed and is this a git repository? Returning 0 for all ranks.');
-      for (const [nodeId] of graph.nodes) {
-        ranks.set(nodeId, 0);
-      }
-    }
-
-    return { ...graph, ranks };
-  };
-};
-````
-
-## File: repograph/src/pipeline/render.ts
-````typescript
-import type { Renderer, RankedCodeGraph, RendererOptions, CodeEdge, CodeNode } from '../types.js';
-
-const generateMermaidGraph = (rankedGraph: RankedCodeGraph): string => {
-  const fileNodes = [...rankedGraph.nodes.values()].filter(node => node.type === 'file');
-  if (fileNodes.length === 0) return '';
-
-  let mermaidString = '```mermaid\n';
-  mermaidString += 'graph TD\n';
-  
-  const edges = new Set<string>();
-  for (const edge of rankedGraph.edges) {
-      const sourceNode = rankedGraph.nodes.get(edge.fromId);
-      const targetNode = rankedGraph.nodes.get(edge.toId);
-
-      if(sourceNode?.type === 'file' && targetNode?.type === 'file' && edge.type === 'imports'){
-        const edgeStr = `    ${edge.fromId}["${sourceNode.name}"] --> ${edge.toId}["${targetNode.name}"]`;
-        if(!edges.has(edgeStr)) {
-            edges.add(edgeStr);
-        }
-      }
-  }
-
-  mermaidString += Array.from(edges).join('\n');
-  mermaidString += '\n```\n';
-  return mermaidString;
-};
-
-const getRank = (id: string, ranks: ReadonlyMap<string, number>): number => ranks.get(id) || 0;
-
-const buildRelationString = (
-  label: string,
-  edges: readonly CodeEdge[],
-  allNodes: ReadonlyMap<string, CodeNode>,
-  limit?: number
-): string | null => {
-  const names = edges.map(e => `\`${allNodes.get(e.toId)?.name ?? 'unknown'}\``);
-  if (names.length === 0) return null;
-  
-  let displayNames = names;
-  let suffix = '';
-  if (limit && names.length > limit) {
-      displayNames = names.slice(0, limit);
-      suffix = '...';
-  }
-  
-  return `${label} ${displayNames.join(', ')}${suffix}`;
-};
-
-/**
- * Creates the default Markdown renderer. It generates a summary, an optional
- * Mermaid diagram, and a detailed breakdown of files and symbols.
- * @returns A Renderer function.
- */
-export const createMarkdownRenderer = (): Renderer => {
-  return (rankedGraph: RankedCodeGraph, options: RendererOptions = {}) => { // NOSONAR
-    const { nodes, ranks } = rankedGraph;
-    const {
-      customHeader,
-      includeHeader = true,
-      includeOverview = true,
-      includeMermaidGraph = true,
-      includeFileList = true,
-      topFileCount = 10,
-      includeSymbolDetails = true,
-      fileSectionSeparator = '---',
-      symbolDetailOptions,
-    } = options;
-    
-    const {
-      includeRelations = true,
-      includeLineNumber = true,
-      includeCodeSnippet = true,
-      maxRelationsToShow = 3,
-    } = symbolDetailOptions || {};
-
-    const fileNodes = [...nodes.values()].filter(attrs => attrs.type === 'file');
-    const sortedFiles = fileNodes
-      .sort((a, b) => getRank(b.id, ranks) - getRank(a.id, ranks));
-
-    let md = '';
-    if (customHeader) {
-      md += `${customHeader}\n\n`;
-    } else if (includeHeader) {
-      md += `# RepoGraph\n\n`;
-      md += `_Generated by RepoGraph on ${new Date().toISOString()}_\n\n`;
-    }
-
-    if (includeOverview) {
-      md += `## 🚀 Project Overview\n\n`;
-      md += `This repository contains ${nodes.size} nodes (${sortedFiles.length} files).\n\n`;
-    }
-
-    if (includeMermaidGraph) {
-      md += `### Module Dependency Graph\n\n`;
-      md += generateMermaidGraph(rankedGraph);
-    }
-    
-    if (includeFileList && sortedFiles.length > 0) {
-      md += `### Top ${topFileCount} Most Important Files\n\n`;
-      md += `| Rank | File | Description |\n`;
-      md += `| :--- | :--- | :--- |\n`;
-      sortedFiles.slice(0, topFileCount).forEach((file, i) => {
-        md += `| ${i + 1} | \`${file.filePath}\` | Key module in the architecture. |\n`;
-      });
-      md += `\n${fileSectionSeparator}\n\n`;
-    }
-
-    if (includeSymbolDetails) {
-      md += `## 📂 File & Symbol Breakdown\n\n`;
-      for (const fileNode of sortedFiles) {
-        md += `### [\`${fileNode.filePath}\`](./${fileNode.filePath})\n\n`;
-        
-        const symbolNodes = [...nodes.values()]
-          .filter(node => node.filePath === fileNode.filePath && node.type !== 'file')
-          .sort((a, b) => a.startLine - b.startLine);
-
-        if (symbolNodes.length > 0) {
-          for (const symbol of symbolNodes) {
-            const detailParts: string[] = [];
-            if (includeRelations) {
-              const outgoingEdges = rankedGraph.edges.filter(e => e.fromId === symbol.id);
-              if (outgoingEdges.length > 0) {
-                const edgeGroups = outgoingEdges.reduce((acc, edge) => {
-                  (acc[edge.type] = acc[edge.type] || []).push(edge);
-                  return acc;
-                }, {} as Record<CodeEdge['type'], CodeEdge[]>);
-                
-                const relationParts = [
-                  buildRelationString('inherits', edgeGroups.inherits || [], nodes),
-                  buildRelationString('implements', edgeGroups.implements || [], nodes),
-                  buildRelationString('calls', edgeGroups.calls || [], nodes, maxRelationsToShow),
-                ].filter((s): s is string => s !== null);
-                if (relationParts.length > 0) detailParts.push(`(${relationParts.join('; ')})`);
-              }
-            }
-            if (includeLineNumber) {
-              detailParts.push(`- _L${symbol.startLine}_`);
-            }
-
-            md += `- **\`${symbol.type} ${symbol.name}\`**${detailParts.length > 0 ? ` ${detailParts.join(' ')}` : ''}\n`;
-            
-            if (includeCodeSnippet && symbol.codeSnippet) {
-              // Use language from file extension for syntax highlighting if possible
-              const lang = fileNode.language || fileNode.filePath.split('.').pop() || '';
-              md += `  \`\`\`${lang}\n  ${symbol.codeSnippet}\n  \`\`\`\n`;
-            }
-          }
-        } else {
-            md += `_No symbols identified in this file._\n`
-        }
-        md += `\n${fileSectionSeparator}\n\n`;
-      }
-    }
-
-    return md;
-  };
-};
 ````
 
 ## File: repograph/src/tree-sitter/language-config.ts
@@ -1602,6 +1279,18 @@ export const LANGUAGE_CONFIGS: LanguageConfig[] = [
 (jsx_opening_element
   name: (_) @html.tag
 ) @html.element.definition
+
+; className="...": capture string content for CSS class lookups
+(jsx_attribute
+  (property_identifier) @_p
+  value: (string) @css.class.reference
+  (#eq? @_p "className"))
+
+; id="...": capture string content for CSS ID lookups
+(jsx_attribute
+  (property_identifier) @_p
+  value: (string) @css.id.reference
+  (#eq? @_p "id"))
 `
   },
   {
@@ -1867,686 +1556,6 @@ export function getSupportedExtensions(): string[] {
 }
 ````
 
-## File: repograph/src/tree-sitter/languages.ts
-````typescript
-import * as Parser from 'web-tree-sitter';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { LANGUAGE_CONFIGS, type LanguageConfig, type LoadedLanguage } from './language-config.js';
-import { logger } from '../utils/logger.util.js';
-import { ParserError } from '../utils/error.util.js';
-
-// Helper to get the correct path in different environments
-const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
-
-let isInitialized = false;
-const loadedLanguages = new Map<string, LoadedLanguage>();
-
-/**
- * Initializes the Tree-sitter parser system.
- * This function is idempotent.
- */
-export const initializeParser = async (): Promise<void> => {
-  if (isInitialized) {
-    return;
-  }
-
-  await Parser.Parser.init();
-  isInitialized = true;
-};
-
-/**
- * Loads a specific language grammar.
- * @param config The language configuration to load
- * @returns A LoadedLanguage object containing the config and language
- */
-export const loadLanguage = async (config: LanguageConfig): Promise<LoadedLanguage> => {
-  if (loadedLanguages.has(config.name)) {
-    return loadedLanguages.get(config.name)!;
-  }
-
-  await initializeParser();
-
-  try {
-    const wasmPath = path.resolve(getDirname(), '..', '..', 'node_modules', config.wasmPath);
-    const language = await Parser.Language.load(wasmPath);
-    
-    const loadedLanguage: LoadedLanguage = {
-      config,
-      language
-    };
-    
-    loadedLanguages.set(config.name, loadedLanguage);
-    return loadedLanguage;
-  } catch (error) {
-    const message = `Failed to load Tree-sitter WASM file for ${config.name}. Please ensure '${config.wasmPath.split('/')[0]}' is installed.`;
-    logger.error(message, error);
-    throw new ParserError(message, config.name, error);
-  }
-};
-
-/**
- * Creates a parser instance for a specific language.
- * @param config The language configuration
- * @returns A parser instance configured for the specified language
- */
-export const createParserForLanguage = async (config: LanguageConfig): Promise<Parser.Parser> => {
-  const loadedLanguage = await loadLanguage(config);
-  const parser = new Parser.Parser();
-  parser.setLanguage(loadedLanguage.language);
-  return parser;
-};
-
-/**
- * Gets all loaded languages.
- * @returns A map of language names to LoadedLanguage objects
- */
-export const getLoadedLanguages = (): Map<string, LoadedLanguage> => {
-  return new Map(loadedLanguages);
-};
-
-/**
- * Preloads all supported languages.
- * This can be called to eagerly load all language parsers.
- */
-export const preloadAllLanguages = async (): Promise<void> => {
-  await Promise.all(LANGUAGE_CONFIGS.map(config => loadLanguage(config)));
-};
-
-// Legacy function for backward compatibility
-export const getParser = async (): Promise<Parser.Parser> => {
-  const tsConfig = LANGUAGE_CONFIGS.find(config => config.name === 'typescript');
-  if (!tsConfig) {
-    throw new Error('TypeScript configuration not found');
-  }
-  return createParserForLanguage(tsConfig);
-};
-````
-
-## File: repograph/src/tree-sitter/queries.ts
-````typescript
-import { LANGUAGE_CONFIGS, getLanguageConfigForFile, type LanguageConfig } from './language-config.js';
-
-/**
- * Tree-sitter query for TypeScript and JavaScript to capture key symbols.
- * This query is designed to find definitions of classes, functions, interfaces,
- * and import statements to build the code graph.
- * 
- * @deprecated Use getQueryForLanguage() instead
- */
-export const TS_QUERY = `
-(import_statement
-  source: (string) @import.source) @import.statement
-
-(class_declaration) @class.definition
-(export_statement declaration: (class_declaration)) @class.definition
-
-(function_declaration) @function.definition
-(export_statement declaration: (function_declaration)) @function.definition
-
-(variable_declarator value: (arrow_function)) @function.arrow.definition
-(public_field_definition value: (arrow_function)) @function.arrow.definition
-(export_statement declaration: (lexical_declaration (variable_declarator value: (arrow_function)))) @function.arrow.definition
-
-(interface_declaration) @interface.definition
-(export_statement declaration: (interface_declaration)) @interface.definition
-
-(type_alias_declaration) @type.definition
-(export_statement declaration: (type_alias_declaration)) @type.definition
-
-(method_definition) @method.definition
-(public_field_definition) @field.definition
-
-(call_expression
-  function: (identifier) @function.call)
-`;
-
-/**
- * Get the Tree-sitter query for a specific language configuration.
- * @param config The language configuration
- * @returns The query string for the language
- */
-export function getQueryForLanguage(config: LanguageConfig): string {
-  return config.query.trim();
-}
-
-/**
- * Get the Tree-sitter query for a file based on its extension.
- * @param filePath The file path
- * @returns The query string for the file's language, or null if not supported
- */
-export function getQueryForFile(filePath: string): string | null {
-  const config = getLanguageConfigForFile(filePath);
-  return config ? getQueryForLanguage(config) : null;
-}
-
-/**
- * Get all supported language configurations.
- * @returns Array of all language configurations
- */
-export function getAllLanguageConfigs(): LanguageConfig[] {
-  return [...LANGUAGE_CONFIGS];
-}
-````
-
-## File: repograph/src/types/graphology-pagerank.d.ts
-````typescript
-declare module 'graphology-pagerank' {
-  import type Graph from 'graphology';
-
-  export default function pagerank<T = any>(graph: Graph<T>, options?: {
-    alpha?: number;
-    tolerance?: number;
-    maxIterations?: number;
-    getEdgeWeight?: (edge: string) => number;
-  }): Record<string, number>;
-}
-````
-
-## File: repograph/src/high-level.ts
-````typescript
-import { createDefaultDiscoverer } from './pipeline/discover.js';
-import { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-import { createPageRanker, createGitRanker } from './pipeline/rank.js';
-import { createMarkdownRenderer } from './pipeline/render.js';
-import type { RepoGraphOptions, Ranker, RankedCodeGraph } from './types.js';
-import path from 'node:path';
-import { logger } from './utils/logger.util.js';
-import { writeFile } from './utils/fs.util.js';
-import { RepoGraphError } from './utils/error.util.js';
-
-const selectRanker = (rankingStrategy: RepoGraphOptions['rankingStrategy'] = 'pagerank'): Ranker => {
-  if (rankingStrategy === 'git-changes') {
-    return createGitRanker();
-  }
-  if (rankingStrategy === 'pagerank') {
-    return createPageRanker();
-  }
-  throw new Error(`Invalid ranking strategy: '${rankingStrategy}'. Available options are 'pagerank', 'git-changes'.`);
-};
-
-/**
- * A mid-level API for programmatically generating and receiving the code graph
- * without rendering it to a file. Ideal for integration with other tools.
- *
- * @param options The configuration object for generating the map.
- * @returns The generated `RankedCodeGraph`.
- */
-export const analyzeProject = async (options: RepoGraphOptions = {}): Promise<RankedCodeGraph> => {
-  const {
-    root = process.cwd(),
-    logLevel = 'info',
-    include,
-    ignore,
-    noGitignore,
-  } = options;
-
-  if (logLevel) {
-    logger.setLevel(logLevel);
-  }
-
-  // Validate options before entering the main try...catch block to provide clear errors.
-  const ranker = selectRanker(options.rankingStrategy);
-
-  try {
-    logger.info('1/3 Discovering files...');
-    const discoverer = createDefaultDiscoverer();
-    const files = await discoverer({ root: path.resolve(root), include, ignore, noGitignore });
-    logger.info(`  -> Found ${files.length} files to analyze.`);
-
-    logger.info('2/3 Analyzing code and building graph...');
-    const analyzer = createTreeSitterAnalyzer();
-    const graph = await analyzer(files);
-    logger.info(`  -> Built graph with ${graph.nodes.size} nodes and ${graph.edges.length} edges.`);
-
-    logger.info('3/3 Ranking graph nodes...');
-    const rankedGraph = await ranker(graph);
-    logger.info('  -> Ranking complete.');
-
-    return rankedGraph;
-  } catch (error) {
-    throw new RepoGraphError(`Failed to analyze project`, error);
-  }
-};
-
-/**
- * The primary, easy-to-use entry point for RepoGraph. It orchestrates the
- * default pipeline based on a configuration object to generate a codemap.
- *
- * @param options The configuration object for generating the map.
- */
-export const generateMap = async (options: RepoGraphOptions = {}): Promise<void> => {
-  const {
-    root = process.cwd(),
-    output = './repograph.md',
-  } = options;
-
-  try {
-    // We get the full ranked graph first
-    const rankedGraph = await analyzeProject(options);
-
-    logger.info('4/4 Rendering output...');
-    const renderer = createMarkdownRenderer();
-    const markdown = renderer(rankedGraph, options.rendererOptions);
-    logger.info('  -> Rendering complete.');
-
-    const outputPath = path.isAbsolute(output) ? output : path.resolve(root, output);
-
-    logger.info(`Writing report to ${path.relative(process.cwd(), outputPath)}...`);
-    await writeFile(outputPath, markdown);
-    logger.info('  -> Report saved.');
-  } catch (error) {
-    // The underlying `analyzeProject` already wraps the error, so we just re-throw.
-    throw error;
-  }
-};
-````
-
-## File: repograph/src/index.ts
-````typescript
-#!/usr/bin/env bun
-
-import { logger } from './utils/logger.util.js';
-import { RepoGraphError } from './utils/error.util.js';
-// High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level.js';
-import type { RepoGraphOptions as IRepoGraphOptions } from './types.js';
-
-export { generateMap, analyzeProject } from './high-level.js';
-
-// Low-Level API for composition and advanced use cases
-export { createMapGenerator } from './composer.js';
-
-// Default pipeline component factories
-export { createDefaultDiscoverer } from './pipeline/discover.js';
-export { createTreeSitterAnalyzer } from './pipeline/analyze.js';
-export { createPageRanker, createGitRanker } from './pipeline/rank.js';
-export { createMarkdownRenderer } from './pipeline/render.js';
-
-// Logger utilities
-export { logger } from './utils/logger.util.js';
-export type { Logger, LogLevel } from './utils/logger.util.js';
-
-// Core types for building custom components
-export type {
-  FileContent,
-  CodeNode,
-  CodeNodeType,
-  CodeNodeVisibility,
-  CodeEdge,
-  CodeGraph,
-  RankedCodeGraph,
-  RepoGraphMap,
-  RepoGraphOptions,
-  RendererOptions,
-  FileDiscoverer,
-  CssIntent,
-  Analyzer,
-  Ranker,
-  Renderer,
-} from './types.js';
-
-// This section runs only when the script is executed directly from the CLI
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const isRunningDirectly = () => {
-  if (typeof process.argv[1] === 'undefined') return false;
-  const runningFile = path.resolve(process.argv[1]);
-  const currentFile = fileURLToPath(import.meta.url);
-  return runningFile === currentFile;
-};
-
-if (isRunningDirectly()) {
-  (async () => {
-    const args = process.argv.slice(2);
-
-    if (args.includes('--help') || args.includes('-h')) {
-      console.log(`
-Usage: repograph [root] [options]
-
-Arguments:
-  root                     The root directory of the repository to analyze. Defaults to the current working directory.
-
-Options:
-  -h, --help               Display this help message.
-  -v, --version            Display the version number.
-  --output <path>          Path to the output Markdown file. (default: "repograph.md")
-  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
-  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
-  --no-gitignore           Do not respect .gitignore files.
-  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
-  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
-
-Output Formatting:
-  --no-header              Do not include the main "RepoGraph" header.
-  --no-overview            Do not include the project overview section.
-  --no-mermaid             Do not include the Mermaid dependency graph.
-  --no-file-list           Do not include the list of top-ranked files.
-  --no-symbol-details      Do not include the detailed file and symbol breakdown.
-  --top-file-count <num>   Set the number of files in the top list. (default: 10)
-  --file-section-separator <str> Custom separator for file sections. (default: "---")
-  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
-  --no-symbol-line-numbers Hide line numbers for symbols.
-  --no-symbol-snippets     Hide code snippets for symbols.
-  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
-    `);
-      process.exit(0);
-    }
-
-    if (args.includes('--version') || args.includes('-v')) {
-      const { readFileSync } = await import('node:fs');
-      const pkgPath = new URL('../package.json', import.meta.url);
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      console.log(pkg.version);
-      process.exit(0);
-    }
-
-    // We need a mutable version of the options to build it from arguments.
-    const options: {
-      root?: string;
-      output?: string;
-      include?: readonly string[];
-      ignore?: readonly string[];
-      noGitignore?: boolean;
-      rankingStrategy?: 'pagerank' | 'git-changes';
-      logLevel?: IRepoGraphOptions['logLevel'];
-      rendererOptions?: IRepoGraphOptions['rendererOptions'];
-    } = {};
-    const includePatterns: string[] = [];
-    const ignorePatterns: string[] = [];
-    // We need a mutable version of rendererOptions to build from CLI args
-    const rendererOptions: {
-      customHeader?: string;
-      includeHeader?: boolean;
-      includeOverview?: boolean;
-      includeMermaidGraph?: boolean;
-      includeFileList?: boolean;
-      topFileCount?: number;
-      includeSymbolDetails?: boolean;
-      fileSectionSeparator?: string;
-      symbolDetailOptions?: {
-        includeRelations?: boolean;
-        includeLineNumber?: boolean;
-        includeCodeSnippet?: boolean;
-        maxRelationsToShow?: number;
-      };
-    } = {};
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (!arg) {
-        continue;
-      }
-      switch (arg) {
-        case '--output':
-          options.output = args[++i];
-          break;
-        case '--include':
-          includePatterns.push(args[++i] as string);
-          break;
-        case '--ignore':
-          ignorePatterns.push(args[++i] as string);
-          break;
-        case '--no-gitignore':
-          options.noGitignore = true;
-          break;
-        case '--ranking-strategy':
-          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-          break;
-        case '--log-level':
-          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-          break;
-        // --- Renderer Options ---
-        case '--no-header':
-          rendererOptions.includeHeader = false;
-          break;
-        case '--no-overview':
-          rendererOptions.includeOverview = false;
-          break;
-        case '--no-mermaid':
-          rendererOptions.includeMermaidGraph = false;
-          break;
-        case '--no-file-list':
-          rendererOptions.includeFileList = false;
-          break;
-        case '--no-symbol-details':
-          rendererOptions.includeSymbolDetails = false;
-          break;
-        case '--top-file-count':
-          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-          break;
-        case '--file-section-separator':
-          rendererOptions.fileSectionSeparator = args[++i];
-          break;
-        case '--no-symbol-relations':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-          break;
-        case '--no-symbol-line-numbers':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-          break;
-        case '--no-symbol-snippets':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-          break;
-        case '--max-relations-to-show':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-          break;
-        default:
-          if (!arg.startsWith('-')) {
-            options.root = arg;
-          }
-          break;
-      }
-    }
-
-    if (includePatterns.length > 0) {
-      options.include = includePatterns;
-    }
-    if (ignorePatterns.length > 0) {
-      options.ignore = ignorePatterns;
-    }
-    if (Object.keys(rendererOptions).length > 0) {
-      options.rendererOptions = rendererOptions;
-    }
-
-    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
-
-    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-
-    try {
-      await executeGenerateMap(options);
-      const relativePath = path.relative(process.cwd(), finalOutput);
-      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-    } catch (error: unknown) {
-      if (error instanceof RepoGraphError) {
-        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-      } else {
-        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
-      }
-      process.exit(1);
-    }
-  })().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
-````
-
-## File: repograph/src/types.ts
-````typescript
-// Core Data Structures
-
-/** Represents a single file read from disk. Immutable. */
-export type FileContent = {
-  readonly path: string;
-  readonly content: string;
-};
-
-/** The type of a symbol identified in the code. */
-export type CodeNodeType =
-  | 'file'
-  | 'class'
-  | 'function'
-  | 'interface'
-  | 'variable'
-  | 'type'
-  | 'arrow_function'
-  | 'method'
-  | 'field'
-  | 'struct'
-  | 'enum'
-  | 'namespace'
-  | 'trait'
-  | 'impl'
-  | 'constructor'
-  | 'property'
-  | 'constant'
-  | 'static'
-  | 'union'
-  | 'template'
-  | 'html_element'
-  | 'css_rule';
-
-/** For CSS nodes, a semantic grouping of its properties. */
-export type CssIntent = 'layout' | 'typography' | 'appearance';
-
-/** New type for access modifiers. */
-export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
-
-/** Represents a single, identifiable symbol (or a file) in the code. Immutable. */
-export type CodeNode = {
-  readonly id: string; // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: CodeNodeType;
-  readonly name: string; // e.g., 'MyClass'
-  readonly filePath: string;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly language?: string; // For file nodes, the detected language
-  readonly codeSnippet?: string; // e.g., function signature
-
-  // --- NEW FIELDS from scn-ts report ---
-  /** The access modifier of the symbol (e.g., public, private). Maps to SCN '+' or '-'. */
-  readonly visibility?: CodeNodeVisibility;
-  /** Whether the symbol (e.g., a function or method) is asynchronous. Maps to SCN '...'. */
-  readonly isAsync?: boolean;
-  /** Whether the symbol is a static member of a class/struct. */
-  readonly isStatic?: boolean;
-  /** The return type of a function/method, as a string. Maps to SCN '#(type)'. */
-  readonly returnType?: string;
-  /** An array of parameters for functions/methods. */
-  readonly parameters?: { name: string; type?: string }[];
-  /** Whether a function is known to throw exceptions. Maps to SCN '!' */
-  readonly canThrow?: boolean; // Populated by analyzer
-  /** Whether a function is believed to be pure. Maps to SCN 'o' */
-  readonly isPure?: boolean; // Not implemented yet
-  /** For UI nodes, the HTML tag name (e.g., 'div'). */
-  readonly htmlTag?: string;
-  /** For UI nodes, a map of attributes. */
-  readonly attributes?: ReadonlyMap<string, string>; // Not used yet
-  /** For CSS nodes, the full selector. */
-  readonly cssSelector?: string;
-  /** For CSS rules, a list of semantic intents. */
-  readonly cssIntents?: readonly CssIntent[]; // Not implemented yet
-};
-
-/** Represents a directed relationship between two CodeNodes. Immutable. */
-export type CodeEdge = {
-  readonly fromId: string; // ID of the source CodeNode
-  readonly toId: string;   // ID of the target CodeNode
-  readonly type: 'imports' | 'calls' | 'inherits' | 'implements';
-};
-
-/** The complete, raw model of the repository's structure. Immutable. */
-export type CodeGraph = {
-  readonly nodes: ReadonlyMap<string, CodeNode>;
-  readonly edges: readonly CodeEdge[];
-};
-
-/** A CodeGraph with an added 'rank' score for each node. Immutable. */
-export type RankedCodeGraph = CodeGraph & {
-  readonly ranks: ReadonlyMap<string, number>; // Key is CodeNode ID
-};
-
-/** The output of a map generation process, containing the graph and rendered output. */
-export type RepoGraphMap = {
-  readonly graph: RankedCodeGraph;
-  readonly markdown: string;
-};
-
-// High-Level API Options
-
-/** Configuration for the final Markdown output. */
-export type RendererOptions = {
-  /** Custom text to appear at the top of the Markdown file. Overrides `includeHeader`. */
-  readonly customHeader?: string;
-  /** Include the default `RepoGraph` header. @default true */
-  readonly includeHeader?: boolean;
-  /** Include the project overview section. @default true */
-  readonly includeOverview?: boolean;
-  /** Include a Mermaid.js dependency graph. @default true */
-  readonly includeMermaidGraph?: boolean;
-  /** Include the list of top-ranked files. @default true */
-  readonly includeFileList?: boolean;
-  /** Number of files to show in the top list. @default 10 */
-  readonly topFileCount?: number;
-  /** Include detailed breakdowns for each symbol. @default true */
-  readonly includeSymbolDetails?: boolean;
-  /** String to use as a separator between file sections. @default '---' */
-  readonly fileSectionSeparator?: string;
-
-  /** Options for how individual symbols are rendered */
-  readonly symbolDetailOptions?: {
-    /** Include relationships (calls, inherits, etc.) in the symbol line. @default true */
-    readonly includeRelations?: boolean;
-    /** Include the starting line number. @default true */
-    readonly includeLineNumber?: boolean;
-    /** Include the code snippet for the symbol. @default true */
-    readonly includeCodeSnippet?: boolean;
-    /** Max number of relations to show per type (e.g., 'calls'). @default 3 */
-    readonly maxRelationsToShow?: number;
-  };
-};
-
-/** Configuration options for the main `generateMap` function. */
-export type RepoGraphOptions = {
-  /** Root directory to analyze. @default process.cwd() */
-  readonly root?: string;
-  /** Output path for the Markdown file. @default './repograph.md' */
-  readonly output?: string;
-  /** Glob patterns for files to include. */
-  readonly include?: readonly string[];
-  /** Glob patterns for files to exclude. */
-  readonly ignore?: readonly string[];
-  /** Disables the use of .gitignore. @default false */
-  readonly noGitignore?: boolean;
-  /** The ranking strategy to use. @default 'pagerank' */
-  readonly rankingStrategy?: 'pagerank' | 'git-changes';
-  /** Configuration for the final Markdown output. */
-  readonly rendererOptions?: RendererOptions;
-  /** Logging level. @default 'info' */
-  readonly logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
-};
-
-// Low-Level Functional Pipeline Contracts
-
-/** Discovers files and returns their content. */
-export type FileDiscoverer = (config: {
-  readonly root: string;
-  readonly include?: readonly string[];
-  readonly ignore?: readonly string[];
-  readonly noGitignore?: boolean;
-}) => Promise<readonly FileContent[]>;
-
-/** Analyzes file content and builds the dependency graph. */
-export type Analyzer = (files: readonly FileContent[]) => Promise<CodeGraph>;
-
-/** Ranks the nodes in a graph. */
-export type Ranker = (graph: CodeGraph) => Promise<RankedCodeGraph>;
-
-/** Renders a ranked graph into a string format. */
-export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions) => string;
-````
-
 ## File: repograph/package.json
 ````json
 {
@@ -2711,55 +1720,6 @@ export type Renderer = (rankedGraph: RankedCodeGraph, options?: RendererOptions)
     "typeRoots": ["./node_modules/@types", "./src/types", "./test/**/*"]
   }
 }
-````
-
-## File: src/index.ts
-````typescript
-import { analyzeProject } from 'repograph';
-import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
-import { serializeGraph } from './serializer';
-
-/**
- * Configuration options for generating an SCN map.
- * These options are passed to the underlying `repograph` engine.
- */
-export interface ScnTsConfig {
-  /** The root directory of the project to analyze. Defaults to the current working directory. */
-  root?: string;
-  /** Glob patterns for files to include. */
-  include: string[];
-  /** Glob patterns for files to exclude. */
-  exclude?: string[];
-  /** Path to the project's tsconfig.json. (Not currently used by repograph) */
-  project?: string;
-  /** (Future) An array of language parser plugins. */
-  // plugins?: unknown[];
-}
-
-/**
- * High-level API to generate an SCN context map from a project.
- *
- * This function orchestrates the entire process:
- * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
- * 2. Serializes the resulting graph into the SCN text format.
- *
- * @param config - The configuration specifying which files to analyze.
- * @returns A promise that resolves to the SCN map as a string.
- */
-export const generateScn = async (config: ScnTsConfig): Promise<string> => {
-  // 1. repograph analyzes the project and returns a structured graph.
-  const repoGraphOptions: RepoGraphOptions = {
-    root: config.root,
-    include: config.include,
-    ignore: config.exclude,
-    // We can set other repograph options here if needed, e.g. rankingStrategy
-  };
-  const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
-
-  // 2. scn-ts serializes that graph into the SCN text format.
-  const scnOutput = serializeGraph(graph, config.root);
-  return scnOutput;
-};
 ````
 
 ## File: src/serializer.ts
@@ -3070,7 +2030,7 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
   const signature = formatSignature(node);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
-  const indent = '  '.repeat(level);
+  const indent = '  '.repeat(level + 1);
 
   // Build the main line: qualifiers symbol id name signature
   const parts = [];
@@ -3138,54 +2098,54 @@ const serializeFile = (
       const targetScnId = idManager.getScnId(targetId);
       return `(${targetScnId}.0)`;
     }).sort().join(', ');
-    return ` ${prefix} ${links}`;
+    if (!links) return '';
+    return `\n  ${prefix} ${links}`;
   };
 
   const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
   const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
 
   let header = `§ (${scnId}) ${fileNode.filePath}`;
-  header += formatFileLinks('->', fileDependencies);
-  header += formatFileLinks('<-', fileCallers);
+  const fileDepLine = formatFileLinks('->', fileDependencies);
+  if (fileDepLine) header += fileDepLine;
+  const fileCallerLine = formatFileLinks('<-', fileCallers);
+  if (fileCallerLine) header += fileCallerLine;
 
   // Hierarchical rendering
-  const allEdges = graph.edges as CodeEdge[];
-  const topLevelSymbols: CodeNode[] = [];
+  const nodeWrappers = symbols.map(s => ({ node: s, children: [] as {node: CodeNode, children: any[]}[] })).sort((a,b) => a.node.startLine - b.node.startLine);
+  const nodeMap = new Map(nodeWrappers.map(w => [w.node.id, w]));
+  const topLevelSymbols: typeof nodeWrappers = [];
 
-  const childNodeIds = new Set<string>();
-  for (const edge of allEdges) {
-    if (edge.type === 'contains' && edge.fromId !== fileNode.id) {
-        const fromNode = graph.nodes.get(edge.fromId);
-        if (fromNode && fromNode.filePath === fileNode.filePath) {
-             childNodeIds.add(edge.toId);
+  for (let i = 0; i < nodeWrappers.length; i++) {
+    const currentWrapper = nodeWrappers[i];
+    let parentWrapper = null;
+    
+    // Find the tightest parent by looking backwards through the sorted list
+    for (let j = i - 1; j >= 0; j--) {
+        const potentialParentWrapper = nodeWrappers[j];
+        if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
+            parentWrapper = potentialParentWrapper;
+            break;
         }
     }
-  }
-
-  for (const symbol of symbols) {
-    if (!childNodeIds.has(symbol.id)) {
-        topLevelSymbols.push(symbol);
+    
+    if (parentWrapper) {
+        parentWrapper.children.push(currentWrapper);
+    } else {
+        topLevelSymbols.push(currentWrapper);
     }
   }
-  
-  topLevelSymbols.sort((a, b) => a.startLine - b.startLine);
 
   const nodeLines: string[] = [];
-  const processNode = (node: CodeNode, level: number) => {
-    nodeLines.push(formatNode(node, graph, idManager, rootDir, level));
-    const children = allEdges
-      .filter(e => e.type === 'contains' && e.fromId === node.id)
-      .map(e => graph.nodes.get(e.toId))
-      .filter((n): n is CodeNode => !!n)
-      .sort((a,b) => a.startLine - b.startLine);
-    
-    for (const child of children) {
-      processNode(child, level + 1);
+  const processNode = (wrapper: {node: CodeNode, children: any[]}, level: number) => {
+    nodeLines.push(formatNode(wrapper.node, graph, idManager, rootDir, level));
+    for (const childWrapper of wrapper.children) {
+      processNode(childWrapper, level + 1);
     }
   };
 
-  for (const node of topLevelSymbols) {
-    processNode(node, 0);
+  for (const wrapper of topLevelSymbols) {
+    processNode(wrapper, 0);
   }
 
   return [header, ...nodeLines].join('\n');
@@ -3271,10 +2231,11 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
     });
     const scn = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
     
-    expect(scn).toContain('¶ (1.1) .layout-only { 📐 }');
-    expect(scn).toContain('¶ (1.2) .text-only { ✍ }');
-    expect(scn).toContain('¶ (1.3) .appearance-only { 💧 }');
-    expect(scn).toContain('¶ (1.4) .all-intents { 📐 ✍ 💧 }');
+    // The order of intent symbols is sorted alphabetically by the serializer.
+    expect(scn).toContain('  ¶ (1.1) .layout-only { 📐 }');
+    expect(scn).toContain('  ¶ (1.2) .text-only { ✍ }');
+    expect(scn).toContain('  ¶ (1.3) .appearance-only { 💧 }');
+    expect(scn).toContain('  ¶ (1.4) .all-intents { 📐 💧 ✍ }');
   });
 
   it('should create links between a JSX element and CSS rules via className', async () => {
@@ -3306,18 +2267,18 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
     expect(tsxScn).toBeDefined();
 
     // Check file-level links
-    expect(cssScn!).toContain('§ (1) Button.css <- (2.0)');
-    expect(tsxScn!).toContain('§ (2) Button.tsx -> (1.0)');
+    expect(cssScn!).toContain('§ (1) Button.css\n  <- (2.0)');
+    expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (1.0)');
 
     // Check entity-level links
     // ⛶ button (2.2) should link to both .btn (1.1) and .btn-primary (1.2)
-    expect(tsxScn!).toContain('⛶ (2.2) button [ class:.btn .btn-primary ]\n    -> (1.1), (1.2)');
+    expect(tsxScn!).toContain('    ⛶ (2.2) button [ class:.btn .btn-primary ]\n      -> (1.1), (1.2)');
     
     // ¶ .btn (1.1) should link back to ⛶ button (2.2)
-    expect(cssScn!).toContain('¶ (1.1) .btn\n    <- (2.2)');
+    expect(cssScn!).toContain('  ¶ (1.1) .btn\n    <- (2.2)');
     
     // ¶ .btn-primary (1.2) should link back to ⛶ button (2.2)
-    expect(cssScn!).toContain('¶ (1.2) .btn-primary\n    <- (2.2)');
+    expect(cssScn!).toContain('  ¶ (1.2) .btn-primary\n    <- (2.2)');
   });
 
   it('should create links between a JSX element and a CSS rule via id', async () => {
@@ -3348,9 +2309,9 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
 
     // Check entity-level links
     // ⛶ div (2.2) should link to #main-container (1.1)
-    expect(tsxScn!).toContain('⛶ (2.2) div [ id:#main-container ]\n    -> (1.1)');
+    expect(tsxScn!).toContain('    ⛶ (2.2) div [ id:#main-container ]\n      -> (1.1)');
     // ¶ #main-container (1.1) should link back to ⛶ div (2.2)
-    expect(cssScn!).toContain('¶ (1.1) #main-container\n    <- (2.2)');
+    expect(cssScn!).toContain('  ¶ (1.1) #main-container\n    <- (2.2)');
   });
 });
 ````
@@ -3383,9 +2344,10 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
 
     const utilScn = scn.split('\n\n').find(s => s.includes('util.ts'));
     expect(utilScn).toBeDefined();
-    // main.ts is file 1, its function 'main' is entity 1.1
-    // util.ts is file 2, its function 'helper' is entity 2.1
-    expect(utilScn).toContain('+ ~ (2.1) helper()\n    <- (1.1)');
+    // main.ts is file 1, util.ts is file 2.
+    // main.ts's 'main' (1.1) calls util.ts's 'helper' (2.1)
+    expect(utilScn).toContain('§ (2) util.ts\n  <- (1.0)');
+    expect(utilScn).toContain('  + ~ (2.1) helper()\n    <- (1.1)');
   });
 
   it('should add a summary of file-level dependencies and callers on the § file declaration line', async () => {
@@ -3399,9 +2361,11 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       include: [`**/*.ts`],
     });
 
-    expect(scn).toContain('§ (1) config.ts <- (3.0)');
-    expect(scn).toContain('§ (2) main.ts -> (3.0)');
-    expect(scn).toContain('§ (3) service.ts -> (1.0) <- (2.0)');
+    // Files are sorted alphabetically: config.ts (1), main.ts (2), service.ts (3)
+    // main.ts imports service.ts. service.ts imports config.ts
+    expect(scn).toContain('§ (1) config.ts\n  <- (3.0)');
+    expect(scn).toContain('§ (2) main.ts\n  -> (3.0)');
+    expect(scn).toContain('§ (3) service.ts\n  -> (1.0)\n  <- (2.0)');
   });
 
   it('should correctly represent a multi-step dependency chain (A -> B -> C)', async () => {
@@ -3415,19 +2379,19 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       include: [`**/*.ts`],
     });
 
-    // File-level links
-    expect(scn).toContain('§ (1) a.ts -> (2.0)');
-    expect(scn).toContain('§ (2) b.ts -> (3.0) <- (1.0)');
-    expect(scn).toContain('§ (3) c.ts <- (2.0)');
+    // File-level links. a.ts (1), b.ts (2), c.ts (3)
+    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+    expect(scn).toContain('§ (2) b.ts\n  -> (3.0)\n  <- (1.0)');
+    expect(scn).toContain('§ (3) c.ts\n  <- (2.0)');
 
     // Entity-level links
     const aScn = scn.split('\n\n').find(s => s.includes('a.ts'));
     const bScn = scn.split('\n\n').find(s => s.includes('b.ts'));
     const cScn = scn.split('\n\n').find(s => s.includes('c.ts'));
 
-    expect(aScn).toContain('~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
-    expect(bScn).toContain('+ ◇ (2.1) B\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
-    expect(cScn).toContain('+ ◇ (3.1) C\n    <- (2.1)'); // C is used by B
+    expect(aScn).toContain('  ~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
+    expect(bScn).toContain('  + ◇ (2.1) B = C\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
+    expect(cScn).toContain('  + ◇ (3.1) C = \'c\'\n    <- (2.1)'); // C is used by B
   });
   
   it('should link a dependency from the function that uses it, not just the file', async () => {
@@ -3447,7 +2411,8 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
 
     const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
     expect(mainScn).toBeDefined();
-    expect(mainScn).toContain('~ (1.1) run()\n    -> (2.1)');
+    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+    expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1)');
   });
 
   it('should support linking to multiple entities on one line', async () => {
@@ -3472,7 +2437,8 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
     expect(mainScn).toBeDefined();
     // main.ts is file 1, util.ts is file 2.
     // run is 1.1, helperA is 2.1, helperB is 2.2
-    expect(mainScn).toContain('+ ~ (1.1) run()\n    -> (2.1), (2.2)');
+    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+    expect(mainScn).toContain('  + ~ (1.1) run()\n    -> (2.1), (2.2)');
   });
 });
 ````
@@ -3499,7 +2465,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyClass');
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
   });
 
   it('should represent a namespace with ◇', async () => {
@@ -3508,7 +2474,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyNamespace');
+    expect(scn).toContain('  + ◇ (1.1) MyNamespace');
   });
 
   it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
@@ -3517,7 +2483,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain(`+ ◇ (1.1) MyModule { key: 'value' }`);
+    expect(scn).toContain(`  + ◇ (1.1) MyModule { key: 'value' }`);
   });
 
   it('should represent an interface with {}', async () => {
@@ -3526,7 +2492,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ {} (1.1) MyInterface');
+    expect(scn).toContain('  + {} (1.1) MyInterface');
   });
 
   it('should represent an export function with + ~', async () => {
@@ -3535,7 +2501,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ~ (1.1) myFunc()');
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
   });
 
   it('should represent a const arrow function with ~', async () => {
@@ -3544,7 +2510,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('~ (1.1) myFunc () => {}');
+    expect(scn).toContain('  ~ (1.1) myFunc()');
   });
 
   it('should represent a class method with ~ and a property with @', async () => {
@@ -3559,8 +2525,8 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ @ (1.2) myProp');
-    expect(scn).toContain('+ ~ (1.3) myMethod()');
+    expect(scn).toContain('    + @ (1.2) myProp');
+    expect(scn).toContain('    + ~ (1.3) myMethod()');
   });
 
   it('should represent a top-level const with @', async () => {
@@ -3570,7 +2536,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       include: [`**/*.ts`],
     });
     // Note: repograph represents this as a "variable" and heuristic makes it not a container
-    expect(scn).toContain('@ (1.1) myVar = 123');
+    expect(scn).toContain('  @ (1.1) myVar = 123');
   });
 
   it('should correctly handle export default class', async () => {
@@ -3579,7 +2545,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ◇ (1.1) MyClass');
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
   });
 
   it('should correctly handle export default function', async () => {
@@ -3588,7 +2554,69 @@ describe('SCN Generation: 1.3 Code Entities', () => {
       root: project.projectDir,
       include: [`**/*.ts`],
     });
-    expect(scn).toContain('+ ~ (1.1) myFunc()');
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
+  });
+});
+````
+
+## File: test/ts/unit/general-structural.test.ts
+````typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.1 General & Structural', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should generate a § file declaration with a unique ID and correct relative path', async () => {
+    project = await setupTestProject({
+      'a.ts': ``,
+      'b.ts': ``,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('§ (1) a.ts');
+    expect(scn).toContain('§ (2) b.ts');
+  });
+
+  it('should assign unique, incrementing entity IDs within a file, starting from 1', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+        export function funcA() {}
+        export class ClassB {}
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('+ ~ (1.1) funcA()');
+    expect(scn).toContain('+ ◇ (1.2) ClassB');
+  });
+
+  it('should represent a side-effect import with a .0 entity ID', async () => {
+    project = await setupTestProject({
+      'a.ts': `import './b.ts';`,
+      'b.ts': `console.log('side effect');`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('§ (1) a.ts -> (2.0)');
+    expect(scn).toContain('§ (2) b.ts <- (1.0)');
   });
 });
 ````
