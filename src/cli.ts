@@ -9,6 +9,7 @@ interface CliOptions {
   output?: string;
   project?: string;
   config?: string;
+  maxWorkers?: number;
   watch: boolean;
   help: boolean;
   version: boolean;
@@ -21,6 +22,7 @@ const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }>
   '--project': { key: 'project', takesValue: true },
   '-c': { key: 'config', takesValue: true },
   '--config': { key: 'config', takesValue: true },
+  '--max-workers': { key: 'maxWorkers', takesValue: true },
   '--watch': { key: 'watch', takesValue: false },
   '-h': { key: 'help', takesValue: false },
   '--help': { key: 'help', takesValue: false },
@@ -43,7 +45,17 @@ function parseArgs(args: string[]): CliOptions {
     const config = ARG_CONFIG[arg];
     if (config) {
       if (config.takesValue) {
-        (options as any)[config.key] = cliArgs[++i];
+        const value = cliArgs[++i];
+        if (config.key === 'maxWorkers') {
+          const numValue = parseInt(value, 10);
+          if (isNaN(numValue) || numValue < 1) {
+            console.error(`Invalid value for --max-workers: ${value}. Must be a positive integer.`);
+            process.exit(1);
+          }
+          (options as any)[config.key] = numValue;
+        } else {
+          (options as any)[config.key] = value;
+        }
       } else {
         (options as any)[config.key] = true;
       }
@@ -91,12 +103,13 @@ function showHelp() {
     globs...         Glob patterns specifying files to include.
 
   Options:
-    -o, --output <path>    Path to write the SCN output file. (default: stdout)
-    -p, --project <path>   Path to tsconfig.json.
-    -c, --config <path>    Path to a config file. (default: scn.config.js)
-    --watch                Watch files for changes and re-generate.
-    -v, --version          Display version number.
-    -h, --help             Display this help message.
+    -o, --output <path>      Path to write the SCN output file. (default: stdout)
+    -p, --project <path>     Path to tsconfig.json.
+    -c, --config <path>      Path to a config file. (default: scn.config.js)
+    --max-workers <num>      Number of parallel workers for analysis. (default: 1)
+    --watch                  Watch files for changes and re-generate.
+    -v, --version            Display version number.
+    -h, --help               Display this help message.
   `);
 }
 
@@ -120,6 +133,7 @@ async function run() {
     include: cliOptions.include.length > 0 ? cliOptions.include : (fileConfig.include || []),
     exclude: fileConfig.exclude,
     project: cliOptions.project || fileConfig.project,
+    maxWorkers: cliOptions.maxWorkers || fileConfig.maxWorkers,
   };
   
   const output = cliOptions.output || fileConfig.output;
