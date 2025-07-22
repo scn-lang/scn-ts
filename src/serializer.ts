@@ -265,18 +265,18 @@ const formatJsxAttributes = (snippet: string): string => {
     return attrs.length > 0 ? `[ ${attrs.join(' ')} ]` : '';
 }
 
-const formatSignature = (node: CodeNode): string => {
+const formatSignature = (node: CodeNode, rootDir?: string): string => {
   if (isComponentNode(node)) {
     // For components, we need to extract props from the full function signature
     // Get the source content to find the complete function definition
-    const source = getSourceContent(node.filePath);
+    const source = getSourceContent(node.filePath, rootDir);
     if (source) {
       const lines = source.split('\n');
       const startLine = node.startLine - 1;
-      const endLine = Math.min(startLine + 5, lines.length); // Look at a few lines to get the full signature
+      const endLine = Math.min(startLine + 10, lines.length); // Look at more lines to get the full signature
       
       // Look for the complete function signature in the source
-      const functionText = lines.slice(startLine, endLine + 3).join('\n'); // Look a bit further
+      const functionText = lines.slice(startLine, endLine).join('\n');
       
       // Try multiple patterns to match React component props
       const patterns = [
@@ -353,7 +353,7 @@ const formatSignature = (node: CodeNode): string => {
 const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string, level = 0): string => {
   const symbol = getNodeSymbol(node);
   const { access, others } = getQualifiers(node, rootDir);
-  const signature = formatSignature(node);
+  const signature = formatSignature(node, rootDir);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
   const indent = '  '.repeat(level + 1);
