@@ -26,11 +26,8 @@
     "package.json",
     "tsconfig.json",
     "src",
-    "docs/test.plan.md",
     "docs/scn.readme.md",
     "test",
-
-
   ],
   "ignore": {
     "useGitignore": true,

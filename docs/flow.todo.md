@@ -1,3 +1,10 @@
+make the codebase radically DRY less code les LOC without causing fail bun test
+
+===
+
+add more complex cases to verify compliance with SCN v1.0
+
+===
 
 execute the test.plan.md for part 2 until 2.2 by following below 10 rules;
 

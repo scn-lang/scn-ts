@@ -2,15 +2,20 @@
 ```
 docs/
   scn.readme.md
-  test.plan.md
 src/
+  cli.ts
   index.ts
   serializer.ts
 test/
   ts/
+    e2e/
+      cli.test.ts
+      config-file.test.ts
+      filesystem.test.ts
     integration/
       css-parsing.test.ts
       dependency-graph.test.ts
+      programmatic-api.test.ts
     unit/
       code-entities.test.ts
       general-structural.test.ts
@@ -315,140 +320,180 @@ An SCN document is a plain text file representing a project's context.
 ---
 ````
 
-## File: docs/test.plan.md
-````markdown
-# SCN-TS Test Plan
+## File: src/cli.ts
+````typescript
+import { generateScn, type ScnTsConfig } from './index.js';
+import { existsSync, readFileSync, watch } from 'fs';
+import { writeFile } from 'fs/promises';
+import { resolve, join, relative } from 'path';
+import { version } from '../package.json';
 
-This document outlines the testing strategy for `scn-ts`, the reference implementation for Symbolic Context Notation. The tests are categorized by feature area and test type (unit, integration, e2e).
+interface CliOptions {
+  include: string[];
+  output?: string;
+  project?: string;
+  config?: string;
+  watch: boolean;
+  help: boolean;
+  version: boolean;
+}
 
----
+function parseArgs(args: string[]): CliOptions {
+  const options: CliOptions = {
+    include: [],
+    watch: false,
+    help: false,
+    version: false,
+  };
+  const cliArgs = args.slice(2);
 
-## 1. Core SCN Generation (JS/TS Parser)
+  for (let i = 0; i < cliArgs.length; i++) {
+    const arg = cliArgs[i];
+    if (!arg) continue;
+    if (arg.startsWith('-')) {
+      switch (arg) {
+        case '-o':
+        case '--output':
+          options.output = cliArgs[++i];
+          break;
+        case '-p':
+        case '--project':
+          options.project = cliArgs[++i];
+          break;
+        case '-c':
+        case '--config':
+          options.config = cliArgs[++i];
+          break;
+        case '--watch':
+          options.watch = true;
+          break;
+        case '-h':
+        case '--help':
+          options.help = true;
+          break;
+        case '-v':
+        case '--version':
+          options.version = true;
+          break;
+        default:
+          console.error(`Unknown option: ${arg}`);
+          process.exit(1);
+      }
+    } else {
+      options.include.push(arg);
+    }
+  }
 
-This section focuses on the correctness of the SCN output for various JavaScript and TypeScript language features. These tests are primarily **unit tests**, feeding source code snippets to the parser and asserting the resulting SCN AST/string.
+  return options;
+}
 
-### 1.1. General & Structural Symbols
+async function loadConfig(configPath?: string): Promise<Partial<ScnTsConfig> & { output?: string }> {
+  const path = resolve(process.cwd(), configPath || 'scn.config.js');
+  if (existsSync(path)) {
+    try {
+      if (path.endsWith('.js')) {
+        const configModule = await import(path);
+        return configModule.default || configModule;
+      }
+      if (path.endsWith('.json')) {
+         return JSON.parse(readFileSync(path, 'utf-8'));
+      }
+    } catch (e) {
+      console.error(`Error loading config file: ${path}`);
+      console.error(e);
+      process.exit(1);
+    }
+  }
+  return {};
+}
 
--   `[unit]` it should generate a `§` file declaration with a unique ID and correct relative path for each file.
--   `[unit]` it should assign unique, incrementing entity IDs within a file, starting from 1 (e.g., `(1.1)`, `(1.2)`).
--   `[unit]` it should represent a direct import of another entity with `-> (file_id.entity_id)`.
--   `[unit]` it should represent a dependency on an entire file (e.g., side-effect import `import './style.css'`) with a `.0` entity ID: `-> (file_id.0)`.
--   `[unit]` it should support linking to multiple entities on one line (e.g. `-> (3.1), (3.2)`).
--   `[integration]` it should resolve and add `<- (caller_file.caller_entity)` annotations to entities that are used by other entities.
+function showHelp() {
+  console.log(`
+  scn-ts v${version}
+  
+  Generates a Symbolic Context Notation map from a TypeScript/JavaScript project.
 
-### 1.2. Inter-File Dependency Graphs
+  Usage:
+    scn-ts [globs...] [options]
 
--   `[integration]` it should add a summary of file-level dependencies on the `§` file declaration line itself (e.g., `§ (1) a.ts -> (2.0), (3.1)`).
--   `[integration]` it should add a summary of file-level callers on the `§` file declaration line (e.g., `§ (2) b.ts <- (1.0)`).
--   `[integration]` it should correctly resolve and represent a multi-step dependency chain across three or more files (e.g., `A.ts -> B.ts -> C.ts`).
--   `[integration]` it should resolve dependencies used inside a function's body and link them from that function's entity, not just from the file's top-level imports.
+  Arguments:
+    globs...         Glob patterns specifying files to include.
 
-### 1.3. Code Entities (Classes, Functions, Variables)
+  Options:
+    -o, --output <path>    Path to write the SCN output file. (default: stdout)
+    -p, --project <path>   Path to tsconfig.json.
+    -c, --config <path>    Path to a config file. (default: scn.config.js)
+    --watch                Watch files for changes and re-generate.
+    -v, --version          Display version number.
+    -h, --help             Display this help message.
+  `);
+}
 
--   `[unit]` it should represent a `class`, TypeScript `namespace`, or an exported object literal (module pattern) with the `◇` symbol.
--   `[unit]` it should represent an `interface` declaration with the `{}` symbol.
--   `[unit]` it should represent an `export function` with the `+ ~` symbols.
--   `[unit]` it should represent a `const myFunction = () => {}` with the `~` symbol.
--   `[unit]` it should represent a class `method` with the `~` symbol.
--   `[unit]` it should represent a class `property` or `field` with the `@` symbol.
--   `[unit]` it should represent a top-level `const` variable with the `@` symbol.
--   `[unit]` it should correctly handle `export default class/function`.
+async function run() {
+  const cliOptions = parseArgs(process.argv);
 
-### 1.4. Type System Symbols
+  if (cliOptions.version) {
+    console.log(version);
+    return;
+  }
+  
+  if (cliOptions.help) {
+    showHelp();
+    return;
+  }
 
--   `[unit]` it should represent an `enum` with the `☰` symbol.
--   `[unit]` it should represent a `type` alias (`type ID = string`) with the `=:` symbol.
--   `[unit]` it should represent a type reference in a function signature or property with the `#` symbol (e.g., `id: string` becomes `id: #`).
--   `[unit]` it should correctly represent complex types like `Promise<User>` as `#(Promise<User>)`.
+  const fileConfig = await loadConfig(cliOptions.config);
 
-### 1.5. Function & Method Qualifiers
+  const config: ScnTsConfig = {
+    root: process.cwd(),
+    include: cliOptions.include.length > 0 ? cliOptions.include : (fileConfig.include || []),
+    exclude: fileConfig.exclude,
+    project: cliOptions.project || fileConfig.project,
+  };
+  
+  const output = cliOptions.output || fileConfig.output;
 
--   `[unit]` it should prefix `public` members with `+`.
--   `[unit]` it should prefix `private` members with `-`.
--   `[unit]` it should append `...` to an `async` function or method.
--   `[unit]` it should append `!` to a function that has a `throw` statement in its body.
--   `[unit]` it should correctly handle functions that are both `async` and can `throw` (e.g., `... !`).
--   `[unit]` it should append `o` to a pure function (one with no side-effects).
+  if (config.include.length === 0) {
+    console.error('Error: No input files specified. Provide glob patterns as arguments or in a config file.');
+    showHelp();
+    process.exit(1);
+  }
 
-### 1.6. JS/TS Specifics (including JSX)
+  const executeGeneration = async () => {
+    try {
+      console.error(`[SCN-TS] Analyzing project...`);
+      const scn = await generateScn(config);
+      if (output) {
+        await writeFile(output, scn, 'utf-8');
+        console.error(`[SCN-TS] SCN map written to ${relative(process.cwd(), output)}`);
+      } else {
+        console.log(scn);
+      }
+    } catch (e: any) {
+      console.error(`[SCN-TS] Error during generation: ${e.message}`);
+      if (!cliOptions.watch) {
+         process.exit(1);
+      }
+    }
+  };
 
--   `[unit]` it should correctly parse a React functional component with props as `◇ (id) MyComponent { props: { p1:#, p2:# } }`.
--   `[unit]` it should represent a JSX element like `<button>` with the `⛶` symbol.
--   `[unit]` it should represent a JSX element's attributes of interest (e.g., `class`, `id`) inside brackets `[ ]`.
--   `[unit]` it should represent JSX hierarchy with indentation.
--   `[unit]` it should link a JSX element's `className` to a CSS file import.
--   `[unit]` it should correctly parse various export syntaxes (`export {}`, `export default`, `export * from`).
--   `[unit]` it should correctly parse various import syntaxes (`import X`, `import {Y}`, `import * as Z`).
+  await executeGeneration();
+  
+  if (cliOptions.watch) {
+    console.error('[SCN-TS] Watching for file changes...');
+    watch(config.root || process.cwd(), { recursive: true }, async (eventType, filename) => {
+        if (filename) {
+            console.error(`[SCN-TS] Change detected in '${filename}'. Re-generating...`);
+            await executeGeneration();
+        }
+    });
+  }
+}
 
-### 1.7. CSS Parsing
-
--   `[unit]` it should generate a `¶` CSS Rule for each selector in a CSS file.
--   `[integration]` it should correctly create `-> (css_file.rule_id)` links from a `⛶` JSX element to the corresponding `¶` CSS rule based on `className` or `id`.
--   `[integration]` it should correctly create `<- (jsx_file.element_id)` links on a `¶` CSS rule pointing back to the `⛶` JSX element that uses it.
--   `[unit]` it should include the `📐` layout intent symbol for rules containing box model, flex, grid, or positioning properties.
--   `[unit]` it should include the `✍` text intent symbol for rules containing font or text styling properties.
--   `[unit]` it should include the `💧` appearance intent symbol for rules containing color, background, border, or shadow properties.
--   `[unit]` it should correctly handle a rule having multiple intents (e.g., `{ 📐 ✍ 💧 }`).
-
----
-
-## 2. Programmatic API
-
-This section focuses on testing the exposed Node.js API for programmatic use. These are primarily **integration tests**.
-
-### 2.1. High-Level API (`generateScn`)
-
--   `[integration]` it should generate a valid SCN string given a set of `include` globs.
--   `[integration]` it should respect `exclude` patterns.
--   `[integration]` it should use the `project` tsconfig path for better type analysis.
--   `[integration]` it should throw an error for invalid options or non-existent files.
-
-### 2.2. Low-Level API
-
--   `[integration]` `loadFiles`: it should correctly read files from disk based on glob patterns.
--   `[integration]` `parse`: it should take file content and produce an array of SCN ASTs.
--   `[integration]` `buildGraph`: it should take SCN ASTs and create a single, resolved graph with correct entity IDs and relationships.
--   `[integration]` `serializeGraph`: it should take a resolved graph and produce a spec-compliant SCN string.
-
----
-
-## 3. Command-Line Interface (CLI)
-
-This section covers the `scn-ts` executable. These are **end-to-end (e2e) tests** that run the CLI as a subprocess and inspect its output and side effects.
-
--   `[e2e]` it should process glob patterns provided as arguments.
--   `[e2e]` it should write the output to the file specified by `--output <path>` or `-o <path>`.
--   `[e2e]` it should print the output to stdout if no output path is given.
--   `[e2e]` it should respect the tsconfig file specified by `--project <path>` or `-p <path>`.
--   `[e2e]` it should respect the config file specified by `--config <path>` or `-c <path>`.
--   `[e2e]` it should override config file settings with CLI flags.
--   `[e2e]` it should display the correct version with `--version` or `-v`.
--   `[e2e]` it should display the help screen with `--help` or `-h`.
--   `[e2e]` it should exit with a non-zero code on error (e.g., file not found, parse error).
-
----
-
-## 4. Configuration (`scn.config.js`)
-
-This section tests the tool's ability to be configured via a `scn.config.js` file. These are **integration tests**.
-
--   `[integration]` it should automatically find and load `scn.config.js` from the project root.
--   `[integration]` it should correctly apply `include` patterns from the config.
--   `[integration]` it should correctly apply `exclude` patterns from the config, overriding includes.
--   `[integration]` it should use the `project` path from the config.
--   `[integration]` it should write to the `output` path specified in the config.
-
----
-
-## 5. File System & Watch Mode
-
-This section tests file system interactions, particularly watch mode. These are **e2e tests**.
-
--   `[e2e]` `--watch`: it should start in watch mode and perform an initial scan.
--   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is modified.
--   `[e2e]` `--watch`: it should re-generate the SCN map when a new file matching the glob is added.
--   `[e2e]` `--watch`: it should re-generate the SCN map when a tracked file is deleted.
--   `[e2e]` it should handle file paths with spaces or special characters correctly.
+run().catch(e => {
+    console.error(e);
+    process.exit(1);
+});
 ````
 
 ## File: src/index.ts
@@ -702,7 +747,7 @@ const formatFunctionSignature = (snippet: string): string => {
   // Find parameters part, e.g., (a: string, b: number)
   const paramsMatch = snippet.match(/\(([^)]*)\)/);
   let params = '()';
-  if (paramsMatch) {
+  if (paramsMatch && paramsMatch[1] !== undefined) {
     // Replace type annotations with #
     const paramContent = paramsMatch[1].replace(/:[^\,)]+/g, ': #');
     params = `(${paramContent})`;
@@ -727,7 +772,7 @@ const formatJsxAttributes = (snippet: string): string => {
     if (idMatch) attrs.push(`id:#${idMatch[1]}`);
     
     const classMatch = snippet.match(/className="([^"]+)"/);
-    if (classMatch) {
+    if (classMatch?.[1]) {
         const classes = classMatch[1].split(' ').map(c => `.${c}`).join(' ');
         attrs.push(`class:${classes}`);
     }
@@ -740,8 +785,8 @@ const formatSignature = (node: CodeNode): string => {
 
   if (isComponent && node.codeSnippet) {
     const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
-    if (propMatch) {
-      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0].trim()).filter(Boolean);
+    if (propMatch?.[1]) {
+      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
       const propsString = props.map(p => `${p}:#`).join(', ');
       return `{ props: { ${propsString} } }`;
     }
@@ -766,7 +811,7 @@ const formatSignature = (node: CodeNode): string => {
   // For type aliases, show the aliased type
   if (node.type === 'type' && node.codeSnippet) {
      const match = node.codeSnippet.match(/=\s*(.+);?/);
-     return match ? `= ${match[1].trim().replace(/;$/, '')}` : '';
+     return match?.[1] ? `= ${match[1].trim().replace(/;$/, '')}` : '';
   }
 
   // For variables/constants, show the value if it's simple
@@ -881,7 +926,8 @@ const serializeFile = (
   const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
   const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
 
-  let header = `§ (${scnId}) ${fileNode.filePath}`;
+    const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
+    let header = `§ (${scnId}) ${formattedPath}`;
   const fileDepLine = formatFileLinks('->', fileDependencies);
   if (fileDepLine) header += fileDepLine;
   const fileCallerLine = formatFileLinks('<-', fileCallers);
@@ -894,11 +940,13 @@ const serializeFile = (
 
   for (let i = 0; i < nodeWrappers.length; i++) {
     const currentWrapper = nodeWrappers[i];
+    if (!currentWrapper) continue;
     let parentWrapper = null;
     
     // Find the tightest parent by looking backwards through the sorted list
     for (let j = i - 1; j >= 0; j--) {
         const potentialParentWrapper = nodeWrappers[j];
+        if (!potentialParentWrapper) continue;
         if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
             parentWrapper = potentialParentWrapper;
             break;
@@ -965,6 +1013,349 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 
   return scnParts.join('\n\n');
 };
+````
+
+## File: test/ts/e2e/cli.test.ts
+````typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+import { version } from '../../../package.json';
+
+describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should process glob patterns provided as arguments and print to stdout', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+      'b.ts': 'export const B = 2;',
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'a.ts'], {
+      cwd: project.projectDir,
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exitCode;
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ts');
+    expect(stderr).toContain('[SCN-TS] Analyzing project...');
+  });
+  
+  it('should write the output to the file specified by --output', async () => {
+    project = await setupTestProject({ 'a.ts': 'export const A = 1;' });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'a.ts', '--output', outputPath], {
+      cwd: project.projectDir,
+    });
+    
+    await proc.exited;
+    
+    const outputContent = await readFile(outputPath, 'utf-8');
+    expect(outputContent).toContain('§ (1) a.ts');
+  });
+
+  it('should respect the tsconfig file specified by --project', async () => {
+    project = await setupTestProject({
+      'Comp.tsx': 'export const C = () => <div />',
+      'tsconfig.test.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
+    });
+
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'Comp.tsx', '-p', 'tsconfig.test.json'], {
+      cwd: project.projectDir,
+    });
+    
+    const stdout = await new Response(proc.stdout).text();
+    expect(await proc.exitCode).toBe(0);
+    expect(stdout).toContain('⛶ (1.2) div');
+  });
+
+  it('should display the correct version with --version', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--version']);
+    const stdout = await new Response(proc.stdout).text();
+    expect(stdout.trim()).toBe(version);
+  });
+  
+  it('should display the help screen with --help', async () => {
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--help']);
+    const stdout = await new Response(proc.stdout).text();
+    expect(stdout).toContain('Usage:');
+    expect(stdout).toContain('--output <path>');
+  });
+  
+  it('should exit with a non-zero code on error', async () => {
+    project = await setupTestProject({}); // Empty project
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'nonexistent.ts'], {
+      cwd: project.projectDir,
+    });
+
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exitCode;
+    
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('Error');
+  });
+});
+````
+
+## File: test/ts/e2e/config-file.test.ts
+````typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+
+describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+  
+  it('should automatically find and load scn.config.js from the project root', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['a.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    const stdout = await new Response(proc.stdout).text();
+    
+    expect(await proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ts');
+  });
+  
+  it('should correctly apply `exclude` patterns from the config', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ignore.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['**/*.ts'], exclude: ['**/*.ignore.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    const stdout = await new Response(proc.stdout).text();
+    
+    expect(await proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ignore.ts');
+  });
+
+  it('should write to the `output` path specified in the config', async () => {
+    const outputPath = 'dist/output.scn';
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'scn.config.js': `import {mkdirSync} from 'fs'; mkdirSync('dist'); export default { include: ['a.ts'], output: '${outputPath}' };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    await proc.exited;
+
+    expect(await proc.exitCode).toBe(0);
+    const outputContent = await readFile(join(project.projectDir, outputPath), 'utf-8');
+    expect(outputContent).toContain('§ (1) a.ts');
+  });
+
+  it('should override config file settings with CLI flags', async () => {
+    const configOutputPath = 'config-output.scn';
+    const cliOutputPath = 'cli-output.scn';
+    
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['a.ts'], output: '${configOutputPath}' };`,
+    });
+    
+    // Override both `include` and `output`
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'b.ts', '-o', cliOutputPath], {
+      cwd: project.projectDir,
+    });
+    await proc.exited;
+
+    expect(await proc.exitCode).toBe(0);
+
+    // Check that the CLI output path was used and has the correct content
+    const cliOutputContent = await readFile(join(project.projectDir, cliOutputPath), 'utf-8');
+    expect(cliOutputContent).toContain('§ (1) b.ts');
+    expect(cliOutputContent).not.toContain('a.ts');
+
+    // Check that the config output path was NOT created
+    await expect(readFile(join(project.projectDir, configOutputPath), 'utf-8')).rejects.toThrow();
+  });
+
+  it('should respect the config file specified by --config or -c', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'config/my.config.js': `export default { include: ['a.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '-c', 'config/my.config.js'], { cwd: project.projectDir });
+    const stdout = await new Response(proc.stdout).text();
+    
+    expect(await proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+  });
+});
+````
+
+## File: test/ts/e2e/filesystem.test.ts
+````typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile, writeFile, rm } from 'fs/promises';
+import { join } from 'path';
+
+// Helper to wait for a file to contain specific content
+async function waitForFileContent(filePath: string, expectedContent: string, timeout = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      if (content.includes(expectedContent)) {
+        return;
+      }
+    } catch {
+      // File might not exist yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 100)); // Poll every 100ms
+  }
+  throw new Error(`Timeout waiting for "${expectedContent}" in ${filePath}`);
+}
+
+describe('SCN Generation: 5. File System & Watch Mode', () => {
+  let project: TestProject | undefined;
+  let watcherProc: ReturnType<typeof Bun.spawn> | undefined;
+
+  afterEach(async () => {
+    if (watcherProc) {
+      watcherProc.kill();
+      watcherProc = undefined;
+    }
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('--watch: should perform an initial scan and re-generate when a file is modified', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'A = 1');
+    const initialContent = await readFile(outputPath, 'utf-8');
+    expect(initialContent).toContain('§ (1) a.ts');
+    expect(initialContent).toContain('@ (1.1) A = 1');
+    
+    // 2. Modify the file
+    await writeFile(join(project.projectDir, 'a.ts'), 'export const A = 42;');
+
+    // 3. Wait for re-generation
+    await waitForFileContent(outputPath, 'A = 42');
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('@ (1.1) A = 42');
+  });
+
+  it('--watch: should re-generate when a new file matching the glob is added', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+    
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'a.ts');
+    
+    // 2. Add a new file
+    await writeFile(join(project.projectDir, 'b.ts'), 'export const B = 2;');
+
+    // 3. Wait for re-generation to include the new file
+    await waitForFileContent(outputPath, 'b.ts');
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('§ (1) a.ts');
+    expect(updatedContent).toContain('§ (2) b.ts');
+  });
+
+  it('--watch: should re-generate when a tracked file is deleted', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+      'b.ts': 'export const B = 2;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+    const fileToDelete = join(project.projectDir, 'b.ts');
+
+    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'b.ts');
+    const initialContent = await readFile(outputPath, 'utf-8');
+    expect(initialContent).toContain('b.ts');
+
+    // 2. Delete the file
+    await rm(fileToDelete);
+
+    // 3. Wait for re-generation (b.ts should be gone)
+    const start = Date.now();
+    let contentHasB = true;
+    while(contentHasB && Date.now() - start < 5000) {
+        const content = await readFile(outputPath, 'utf-8');
+        if (!content.includes('b.ts')) {
+            contentHasB = false;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    expect(contentHasB).toBe(false);
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('a.ts');
+    expect(updatedContent).not.toContain('b.ts');
+  });
+
+  it('should handle file paths with spaces correctly', async () => {
+     project = await setupTestProject({
+      '"my component".ts': 'export const MyComponent = 1;',
+    });
+    const outputPath = join(project.projectDir, '"output with spaces".scn');
+    
+    const proc = Bun.spawn(
+      ['bun', 'run', 'src/cli.ts', '"my component".ts', '-o', '"output with spaces".scn'],
+      { cwd: project.projectDir }
+    );
+    await proc.exited;
+
+    expect(await proc.exitCode).toBe(0);
+    const outputContent = await readFile(outputPath, 'utf-8');
+    expect(outputContent).toContain('§ (1) "\\"my component\\".ts"');
+  });
+});
 ````
 
 ## File: test/ts/integration/css-parsing.test.ts
@@ -1214,6 +1605,132 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
     // run is 1.1, helperA is 2.1, helperB is 2.2
     expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
     expect(mainScn).toContain('  + ~ (1.1) run()\n    -> (2.1), (2.2)');
+  });
+});
+````
+
+## File: test/ts/integration/programmatic-api.test.ts
+````typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { serializeGraph } from '../../../src/serializer';
+import { setupTestProject, type TestProject } from '../../test.util';
+import type { RankedCodeGraph, CodeNode, CodeEdge as RepographEdge } from 'repograph';
+import { rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+// Re-define the extended edge type used internally by the serializer
+type CodeEdge = Omit<RepographEdge, 'type'> & { type: RepographEdge['type'] | 'contains' | 'references' };
+
+describe('SCN Generation: 2. Programmatic API', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+  
+  describe('2.1 High-Level API (generateScn)', () => {
+    it('should generate a valid SCN string given a set of include globs', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+        'b.ts': `export const B = 2;`,
+      });
+
+      const scn = await generateScn({ root: project.projectDir, include: ['a.ts'] });
+      expect(scn).toContain('§ (1) a.ts');
+      expect(scn).not.toContain('b.ts');
+    });
+
+    it('should respect exclude patterns', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+        'b.ignore.ts': `export const B = 2;`,
+      });
+
+      const scn = await generateScn({
+        root: project.projectDir,
+        include: ['**/*.ts'],
+        exclude: ['**/*.ignore.ts'],
+      });
+      expect(scn).toContain('§ (1) a.ts');
+      expect(scn).not.toContain('b.ignore.ts');
+    });
+
+    it('should use the project tsconfig path for better type analysis', async () => {
+      project = await setupTestProject({
+        'Button.tsx': `export const Button = () => <button>Click</button>;`,
+        'tsconfig.json': JSON.stringify({
+            "compilerOptions": { "jsx": "react-jsx" },
+        }),
+      });
+
+      const scn = await generateScn({
+        root: project.projectDir,
+        include: ['**/*.tsx'],
+        project: 'tsconfig.json',
+      });
+      
+      // Correct parsing of JSX depends on tsconfig.json
+      expect(scn).toContain('§ (1) Button.tsx');
+      expect(scn).toContain('+ ◇ (1.1) Button()');
+      expect(scn).toContain('⛶ (1.2) button');
+    });
+
+    it('should return an empty string for globs that match no files', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+      });
+      const scn = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
+      expect(scn).toBe('');
+    });
+
+    it('should throw an error for non-existent root directory', async () => {
+        const nonExistentDir = join(tmpdir(), 'scn-ts-non-existent-dir-test');
+        await rm(nonExistentDir, { recursive: true, force: true }).catch(() => {});
+        
+        const promise = generateScn({ root: nonExistentDir, include: ['**/*.ts'] });
+        
+        // repograph is expected to throw when the root path does not exist.
+        await expect(promise).rejects.toThrow();
+    });
+  });
+
+  describe('2.2 Low-Level API (serializeGraph)', () => {
+    it('should serialize a resolved graph into spec-compliant SCN string', () => {
+        const fileNodeA: CodeNode = { id: 'file-a', filePath: 'a.ts', type: 'file', name: 'a.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+        const funcNodeA: CodeNode = { id: 'func-a', filePath: 'a.ts', type: 'function', name: 'funcA', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcA()', };
+        const fileNodeB: CodeNode = { id: 'file-b', filePath: 'b.ts', type: 'file', name: 'b.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+        const funcNodeB: CodeNode = { id: 'func-b', filePath: 'b.ts', type: 'function', name: 'funcB', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcB()', };
+
+        const nodes = new Map<string, CodeNode>([
+            [fileNodeA.id, fileNodeA],
+            [funcNodeA.id, funcNodeA],
+            [fileNodeB.id, fileNodeB],
+            [funcNodeB.id, funcNodeB],
+        ]);
+        
+        const edges: CodeEdge[] = [
+            // File A imports File B
+            { fromId: 'file-a', toId: 'file-b', type: 'imports' },
+            // funcA calls funcB
+            { fromId: 'func-a', toId: 'func-b', type: 'references' },
+        ];
+
+        const graph: RankedCodeGraph = { nodes, edges: edges as any };
+
+        const scnOutput = serializeGraph(graph);
+        
+        const expectedScn = [
+            '§ (1) a.ts\n  -> (2.0)\n  + ~ (1.1) funcA()\n    -> (2.1)',
+            '§ (2) b.ts\n  <- (1.0)\n  + ~ (2.1) funcB()\n    <- (1.1)'
+        ].join('\n\n');
+        
+        expect(scnOutput).toBe(expectedScn);
+    });
   });
 });
 ````
@@ -1675,8 +2192,12 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
 ## File: package.json
 ````json
 {
+  "version": "1.0.0",
   "name": "scn-ts",
   "module": "src/index.ts",
+  "bin": {
+    "scn-ts": "src/cli.ts"
+  },
   "type": "module",
   "private": true,
   "devDependencies": {

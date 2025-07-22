@@ -13,7 +13,7 @@ export interface ScnTsConfig {
   include: string[];
   /** Glob patterns for files to exclude. */
   exclude?: string[];
-  /** Path to the project's tsconfig.json, used by `repograph` for type analysis. */
+  /** Path to the project's tsconfig.json. (Not currently used by repograph) */
   project?: string;
   /** (Future) An array of language parser plugins. */
   // plugins?: unknown[];
@@ -35,7 +35,6 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
     root: config.root,
     include: config.include,
     ignore: config.exclude,
-    project: config.project,
     // We can set other repograph options here if needed, e.g. rankingStrategy
   };
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);

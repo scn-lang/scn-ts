@@ -63,8 +63,8 @@ describe('SCN Generation: 2. Programmatic API', () => {
       
       // Correct parsing of JSX depends on tsconfig.json
       expect(scn).toContain('§ (1) Button.tsx');
-      expect(scn).toContain('+ ◇ (1.1) Button()');
-      expect(scn).toContain('⛶ (1.2) button');
+      expect(scn).toContain('+ ◇ (1.2) Button');
+      expect(scn).toContain('⛶ (1.3) button');
     });
 
     it('should return an empty string for globs that match no files', async () => {
@@ -107,7 +107,13 @@ describe('SCN Generation: 2. Programmatic API', () => {
             { fromId: 'func-a', toId: 'func-b', type: 'references' },
         ];
 
-        const graph: RankedCodeGraph = { nodes, edges };
+        const ranks = new Map<string, number>([
+            [fileNodeA.id, 0],
+            [funcNodeA.id, 0],
+            [fileNodeB.id, 0],
+            [funcNodeB.id, 0],
+        ]);
+        const graph: RankedCodeGraph = { nodes, edges: edges as any, ranks };
 
         const scnOutput = serializeGraph(graph);
         

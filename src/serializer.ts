@@ -198,7 +198,7 @@ const formatFunctionSignature = (snippet: string): string => {
   // Find parameters part, e.g., (a: string, b: number)
   const paramsMatch = snippet.match(/\(([^)]*)\)/);
   let params = '()';
-  if (paramsMatch) {
+  if (paramsMatch && paramsMatch[1] !== undefined) {
     // Replace type annotations with #
     const paramContent = paramsMatch[1].replace(/:[^\,)]+/g, ': #');
     params = `(${paramContent})`;
@@ -223,7 +223,7 @@ const formatJsxAttributes = (snippet: string): string => {
     if (idMatch) attrs.push(`id:#${idMatch[1]}`);
     
     const classMatch = snippet.match(/className="([^"]+)"/);
-    if (classMatch) {
+    if (classMatch?.[1]) {
         const classes = classMatch[1].split(' ').map(c => `.${c}`).join(' ');
         attrs.push(`class:${classes}`);
     }
@@ -236,8 +236,8 @@ const formatSignature = (node: CodeNode): string => {
 
   if (isComponent && node.codeSnippet) {
     const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
-    if (propMatch) {
-      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0].trim()).filter(Boolean);
+    if (propMatch?.[1]) {
+      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
       const propsString = props.map(p => `${p}:#`).join(', ');
       return `{ props: { ${propsString} } }`;
     }
@@ -262,7 +262,7 @@ const formatSignature = (node: CodeNode): string => {
   // For type aliases, show the aliased type
   if (node.type === 'type' && node.codeSnippet) {
      const match = node.codeSnippet.match(/=\s*(.+);?/);
-     return match ? `= ${match[1].trim().replace(/;$/, '')}` : '';
+     return match?.[1] ? `= ${match[1].trim().replace(/;$/, '')}` : '';
   }
 
   // For variables/constants, show the value if it's simple
@@ -377,7 +377,8 @@ const serializeFile = (
   const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
   const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
 
-  let header = `§ (${scnId}) ${fileNode.filePath}`;
+    const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
+    let header = `§ (${scnId}) ${formattedPath}`;
   const fileDepLine = formatFileLinks('->', fileDependencies);
   if (fileDepLine) header += fileDepLine;
   const fileCallerLine = formatFileLinks('<-', fileCallers);
@@ -390,11 +391,13 @@ const serializeFile = (
 
   for (let i = 0; i < nodeWrappers.length; i++) {
     const currentWrapper = nodeWrappers[i];
+    if (!currentWrapper) continue;
     let parentWrapper = null;
     
     // Find the tightest parent by looking backwards through the sorted list
     for (let j = i - 1; j >= 0; j--) {
         const potentialParentWrapper = nodeWrappers[j];
+        if (!potentialParentWrapper) continue;
         if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
             parentWrapper = potentialParentWrapper;
             break;

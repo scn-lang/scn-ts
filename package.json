@@ -1,6 +1,10 @@
 {
+  "version": "1.0.0",
   "name": "scn-ts",
   "module": "src/index.ts",
+  "bin": {
+    "scn-ts": "src/cli.ts"
+  },
   "type": "module",
   "private": true,
   "devDependencies": {
