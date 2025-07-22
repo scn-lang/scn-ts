@@ -1,4 +1,20 @@
 
+execute the test.plan.md for part 2 until 2.2 by following below 10 rules;
+
+1. if no implementation on src by given cases, then create the implementation.
+2. implement test/ts/e2e/[categories]/*.test.ts files, test/ts/integration/[categories]/*.test.ts files, test/ts/unit/[categories]/*.test.ts files,  test/test.util.ts
+3. Test cases should be isolated and clean no left over even on sigterm
+4. Test should use bun:test describe,it,afterAll,beforeAll,afterEach,beforeEach without mock
+5. Create challenging, thorough test cases that fully verify implementation
+6. Test cases should comply with SCN v1.0 expectations
+7. Do not create test of tricks, simulation, stub, mock, etc. you should produce code of real algorithm
+8. Do not create any new file for helper,script etc. just do what prompted.
+9. test should create/use/modify test/test.util.ts for reusability
+10 type of any, unknown, casting as: they are strictly forbidden!!!
+
+
+===
+
 execute the test.plan.md for part 1.4 until 1.6 by following below 10 rules;
 
 1. if no implementation on src by given cases, then create the implementation.

@@ -1,0 +1,244 @@
+uuid: 13bb1047-9b2f-4886-9ac4-71239c087902
+projectId: scn-ts
+createdAt: '2025-07-22T01:45:30.354Z'
+linesAdded: 124
+linesRemoved: 1
+gitCommitMsg: 'feat: implement programmatic API tests'
+promptSummary: Implement tests for section 2.0 (Programmatic API) of test.plan.md.
+reasoning:
+  - >-
+    I will now implement the tests for the Programmatic API as outlined in
+    section 2 of the `test.plan.md`. This involves creating a new integration
+    test file and making a small but crucial correction to `src/index.ts` to
+    ensure the `project` configuration option is passed to the underlying graph
+    engine.
+  - >-
+    First, I'll update `src/index.ts`. The `generateScn` function was not
+    passing the `project` (tsconfig) path to `repograph`. This is necessary for
+    correct parsing of features like JSX. I'll add this property to the options
+    object and update the inaccurate comment.
+  - >-
+    Next, I'll create the new test file
+    `test/ts/integration/programmatic-api.test.ts`. This file will contain tests
+    for both the high-level `generateScn` API and the lower-level
+    `serializeGraph` function, covering all test cases specified in the test
+    plan for section 2.
+  - >-
+    These changes fully address the requirements for testing section 2 of the
+    test plan.
+operations:
+  - type: write
+    path: src/index.ts
+    content: >-
+      --- src/index.ts
+
+      +++ src/index.ts
+
+      @@ -8,7 +8,7 @@
+         include: string[];
+         /** Glob patterns for files to exclude. */
+         exclude?: string[];
+      -  /** Path to the project's tsconfig.json. (Not currently used by
+      repograph) */
+
+      +  /** Path to the project's tsconfig.json, used by `repograph` for type
+      analysis. */
+         project?: string;
+         /** (Future) An array of language parser plugins. */
+         // plugins?: unknown[];
+      @@ -27,6 +27,7 @@
+           root: config.root,
+           include: config.include,
+           ignore: config.exclude,
+      +    project: config.project,
+           // We can set other repograph options here if needed, e.g. rankingStrategy
+         };
+         const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+    patchStrategy: new-unified
+  - type: write
+    path: test/ts/integration/programmatic-api.test.ts
+    content: >-
+      import { describe, it, expect, afterEach } from 'bun:test';
+
+      import { generateScn } from '../../../src/index';
+
+      import { serializeGraph } from '../../../src/serializer';
+
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      import type { RankedCodeGraph, CodeNode, CodeEdge as RepographEdge } from
+      'repograph';
+
+      import { rm } from 'fs/promises';
+
+      import { tmpdir } from 'os';
+
+      import { join } from 'path';
+
+
+      // Re-define the extended edge type used internally by the serializer
+
+      type CodeEdge = Omit<RepographEdge, 'type'> & { type:
+      RepographEdge['type'] | 'contains' | 'references' };
+
+
+      describe('SCN Generation: 2. Programmatic API', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+        
+        describe('2.1 High-Level API (generateScn)', () => {
+          it('should generate a valid SCN string given a set of include globs', async () => {
+            project = await setupTestProject({
+              'a.ts': `export const A = 1;`,
+              'b.ts': `export const B = 2;`,
+            });
+
+            const scn = await generateScn({ root: project.projectDir, include: ['a.ts'] });
+            expect(scn).toContain('§ (1) a.ts');
+            expect(scn).not.toContain('b.ts');
+          });
+
+          it('should respect exclude patterns', async () => {
+            project = await setupTestProject({
+              'a.ts': `export const A = 1;`,
+              'b.ignore.ts': `export const B = 2;`,
+            });
+
+            const scn = await generateScn({
+              root: project.projectDir,
+              include: ['**/*.ts'],
+              exclude: ['**/*.ignore.ts'],
+            });
+            expect(scn).toContain('§ (1) a.ts');
+            expect(scn).not.toContain('b.ignore.ts');
+          });
+
+          it('should use the project tsconfig path for better type analysis', async () => {
+            project = await setupTestProject({
+              'Button.tsx': `export const Button = () => <button>Click</button>;`,
+              'tsconfig.json': JSON.stringify({
+                  "compilerOptions": { "jsx": "react-jsx" },
+              }),
+            });
+
+            const scn = await generateScn({
+              root: project.projectDir,
+              include: ['**/*.tsx'],
+              project: 'tsconfig.json',
+            });
+            
+            // Correct parsing of JSX depends on tsconfig.json
+            expect(scn).toContain('§ (1) Button.tsx');
+            expect(scn).toContain('+ ◇ (1.1) Button()');
+            expect(scn).toContain('⛶ (1.2) button');
+          });
+
+          it('should return an empty string for globs that match no files', async () => {
+            project = await setupTestProject({
+              'a.ts': `export const A = 1;`,
+            });
+            const scn = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
+            expect(scn).toBe('');
+          });
+
+          it('should throw an error for non-existent root directory', async () => {
+              const nonExistentDir = join(tmpdir(), 'scn-ts-non-existent-dir-test');
+              await rm(nonExistentDir, { recursive: true, force: true }).catch(() => {});
+              
+              const promise = generateScn({ root: nonExistentDir, include: ['**/*.ts'] });
+              
+              // repograph is expected to throw when the root path does not exist.
+              await expect(promise).rejects.toThrow();
+          });
+        });
+
+        describe('2.2 Low-Level API (serializeGraph)', () => {
+          it('should serialize a resolved graph into spec-compliant SCN string', () => {
+              const fileNodeA: CodeNode = { id: 'file-a', filePath: 'a.ts', type: 'file', name: 'a.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+              const funcNodeA: CodeNode = { id: 'func-a', filePath: 'a.ts', type: 'function', name: 'funcA', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcA()', };
+              const fileNodeB: CodeNode = { id: 'file-b', filePath: 'b.ts', type: 'file', name: 'b.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+              const funcNodeB: CodeNode = { id: 'func-b', filePath: 'b.ts', type: 'function', name: 'funcB', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcB()', };
+
+              const nodes = new Map<string, CodeNode>([
+                  [fileNodeA.id, fileNodeA],
+                  [funcNodeA.id, funcNodeA],
+                  [fileNodeB.id, fileNodeB],
+                  [funcNodeB.id, funcNodeB],
+              ]);
+              
+              const edges: CodeEdge[] = [
+                  // File A imports File B
+                  { fromId: 'file-a', toId: 'file-b', type: 'imports' },
+                  // funcA calls funcB
+                  { fromId: 'func-a', toId: 'func-b', type: 'references' },
+              ];
+
+              const graph: RankedCodeGraph = { nodes, edges };
+
+              const scnOutput = serializeGraph(graph);
+              
+              const expectedScn = [
+                  '§ (1) a.ts\n  -> (2.0)\n  + ~ (1.1) funcA()\n    -> (2.1)',
+                  '§ (2) b.ts\n  <- (1.0)\n  + ~ (2.1) funcB()\n    <- (1.1)'
+              ].join('\n\n');
+              
+              expect(scnOutput).toBe(expectedScn);
+          });
+        });
+      });
+    patchStrategy: replace
+snapshot:
+  test/ts/integration/programmatic-api.test.ts: null
+  src/index.ts: |
+    import { analyzeProject } from 'repograph';
+    import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
+    import { serializeGraph } from './serializer';
+
+    /**
+     * Configuration options for generating an SCN map.
+     * These options are passed to the underlying `repograph` engine.
+     */
+    export interface ScnTsConfig {
+      /** The root directory of the project to analyze. Defaults to the current working directory. */
+      root?: string;
+      /** Glob patterns for files to include. */
+      include: string[];
+      /** Glob patterns for files to exclude. */
+      exclude?: string[];
+      /** Path to the project's tsconfig.json. (Not currently used by repograph) */
+      project?: string;
+      /** (Future) An array of language parser plugins. */
+      // plugins?: unknown[];
+    }
+
+    /**
+     * High-level API to generate an SCN context map from a project.
+     *
+     * This function orchestrates the entire process:
+     * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
+     * 2. Serializes the resulting graph into the SCN text format.
+     *
+     * @param config - The configuration specifying which files to analyze.
+     * @returns A promise that resolves to the SCN map as a string.
+     */
+    export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+      // 1. repograph analyzes the project and returns a structured graph.
+      const repoGraphOptions: RepoGraphOptions = {
+        root: config.root,
+        include: config.include,
+        ignore: config.exclude,
+        // We can set other repograph options here if needed, e.g. rankingStrategy
+      };
+      const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+
+      // 2. scn-ts serializes that graph into the SCN text format.
+      const scnOutput = serializeGraph(graph, config.root);
+      return scnOutput;
+    };
+approved: true
