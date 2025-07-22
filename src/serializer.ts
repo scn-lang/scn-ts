@@ -123,7 +123,9 @@ const getVisibilitySymbol = (node: CodeNode, rootDir?: string): '+' | '-' | unde
     `export\\s+(default\\s+)?(async\\s+)?(class|function|interface|enum|type|const|let|var|namespace)\\s+${name}\\b`,
     // `export { MyVar }`
     `export\\s*\\{[^}]*\\b${name}\\b`,
-  ].some(p => new RegExp(p).test(source));
+    // `export default` for anonymous functions/arrow functions
+    name === 'default' ? `export\\s+default\\s+` : null,
+  ].filter(Boolean).some(p => new RegExp(p!).test(source));
 
   if (isExported) {
     return '+';
