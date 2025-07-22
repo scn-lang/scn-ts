@@ -55,4 +55,27 @@ describe('SCN Generation: 1.1 General & Structural', () => {
     expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
     expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
   });
+
+  it('should represent hierarchical code structures with correct indentation', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+        export namespace MyNamespace {
+          export class MyClass {
+            public myMethod() {}
+          }
+        }
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    const expected = [
+      '  + ◇ (1.1) MyNamespace',
+      '    + ◇ (1.2) MyClass',
+      '      + ~ (1.3) myMethod()'
+    ].join('\n');
+    expect(scn).toContain(expected);
+  });
 });

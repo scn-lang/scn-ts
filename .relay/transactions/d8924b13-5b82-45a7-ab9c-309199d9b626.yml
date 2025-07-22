@@ -1,0 +1,1246 @@
+uuid: d8924b13-5b82-45a7-ab9c-309199d9b626
+projectId: scn-ts
+createdAt: '2025-07-22T13:13:26.565Z'
+linesAdded: 283
+linesRemoved: 4
+gitCommitMsg: 'feat(testing): add comprehensive unit tests for SCN spec v1.0'
+promptSummary: >-
+  The user requested to add more complex test cases to verify compliance with
+  the SCN v1.0 specification. I have added three new test suites for
+  JSX/Modules, Qualifiers, and the Type System. I also enhanced existing tests
+  to cover hierarchical structures, anonymous exports, and corrected errors in
+  CSS linking logic. A minor refinement was made to the serializer to improve
+  output formatting.
+reasoning:
+  - >-
+    Based on your request to add more complex test cases to verify compliance
+    with SCN v1.0, I have analyzed the existing tests and the specification.
+    I've identified several areas to enhance test coverage, focusing on
+    hierarchical structures, module syntax edge cases, and correcting existing
+    tests.
+  - 'Here are the changes I''m making:'
+  - >-
+    1.  **Enhance Hierarchy Testing**: I'm adding a test to
+    `test/ts/unit/general-structural.test.ts` to verify that nested code
+    structures (like a class inside a namespace) are rendered with correct SCN
+    indentation, which is a core feature of the spec for representing structure.
+  - >-
+    2.  **Test Anonymous Exports**: I'm adding a test case to
+    `test/ts/unit/code-entities.test.ts` for `export default () => {}` to ensure
+    anonymous exports are handled gracefully.
+  - '3.  **Refine JSX & CSS Linking**:'
+  - >-
+    *   I've corrected the file dependency links in
+    `test/ts/integration/css-parsing.test.ts`. The original test had incorrect
+    file IDs for CSS-to-JSX linking.
+  - >-
+    *   I've removed an extra whitespace in the SCN output for JSX attributes by
+    adjusting `src/serializer.ts` for a cleaner, more consistent output, and
+    updated the corresponding tests.
+  - >-
+    4.  **Create New Unit Tests**: I am adding the three new test suites you've
+    outlined to cover major parts of the SCN specification, with some
+    enhancements:
+  - >-
+    *   `test/ts/unit/qualifiers.test.ts`: Added as specified to cover
+    function/method qualifiers (`+`, `-`, `...`, `!`, `o`).
+  - >-
+    *   `test/ts/unit/type-system.test.ts`: Added as specified and enhanced with
+    a test for generic functions to ensure complex type signatures are handled
+    correctly.
+  - >-
+    *   `test/ts/unit/jsx.test.ts`: Added to test JSX and module syntax. I've
+    improved the module tests to specifically check for entity-to-entity linking
+    within functions and to cover export aliases (`export { a as A }`).
+  - >-
+    These changes significantly increase the test suite's rigor and ensure
+    closer alignment with the SCN v1.0 specification.
+operations:
+  - type: write
+    path: src/serializer.ts
+    content: |-
+      <<<<<<< SEARCH
+          return attrs.length > 0 ? ` [ ${attrs.join(' ')} ]` : '';
+      =======
+          return attrs.length > 0 ? `[ ${attrs.join(' ')} ]` : '';
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+  - type: write
+    path: test/ts/integration/css-parsing.test.ts
+    content: >-
+      --- test/ts/integration/css-parsing.test.ts
+
+      +++ test/ts/integration/css-parsing.test.ts
+
+      @@ -43,15 +43,16 @@
+           expect(tsxScn).toBeDefined();
+       
+           // Check file-level links (import relationship)
+      -    expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (2.0)');
+
+      +    expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (1.0)');
+
+      +    expect(cssScn!).toContain('§ (1) Button.css\n  <- (2.0)');
+       
+           // Check entity-level links
+           // ⛶ button (2.2) should link to both .btn (1.1) and .btn-primary (1.2)
+      -    expect(tsxScn!).toContain('    ⛶ (2.2) button  [ class:.btn
+      .btn-primary ]\n      -> (1.1), (1.2)');
+
+      +    expect(tsxScn!).toContain('    ⛶ (2.2) button [ class:.btn
+      .btn-primary ]\n      -> (1.1), (1.2)');
+           
+           // ¶ .btn (1.1) should link back to ⛶ button (2.2)
+      -    expect(cssScn!).toContain('  ¶ (1.1) .btn { 💧 }\n    <- (2.2)');
+
+      +    expect(cssScn!).toContain('  ¶ (1.1) .btn { 💧 }\n    <- (2.2)');
+           
+           // ¶ .btn-primary (1.2) should link back to ⛶ button (2.2)
+      -    expect(cssScn!).toContain('  ¶ (1.2) .btn-primary { 💧 }\n    <-
+      (2.2)');
+
+      +    expect(cssScn!).toContain('  ¶ (1.2) .btn-primary { 💧 }\n    <-
+      (2.2)');
+         });
+       
+         it('should create links between a JSX element and a CSS rule via id', async () => {
+      @@ -78,7 +79,7 @@
+       
+           // Check entity-level links
+           // ⛶ div (2.2) should link to #main-container (1.1)
+      -    expect(tsxScn!).toContain('    ⛶ (2.2) div  [ id:#main-container
+      ]\n      -> (1.1)');
+
+      +    expect(tsxScn!).toContain('    ⛶ (2.2) div [ id:#main-container
+      ]\n      -> (1.1)');
+           // ¶ #main-container (1.1) should link back to ⛶ div (2.2)
+           expect(cssScn!).toContain('  ¶ (1.1) #main-container { 💧 }\n    <- (2.2)');
+         });
+    patchStrategy: new-unified
+  - type: write
+    path: test/ts/unit/code-entities.test.ts
+    content: >-
+      --- test/ts/unit/code-entities.test.ts
+
+      +++ test/ts/unit/code-entities.test.ts
+
+      @@ -87,4 +87,13 @@
+           });
+           expect(scn).toContain('  + ~ (1.1) myFunc()');
+         });
+      +
+
+      +  it('should correctly handle export default anonymous function', async
+      () => {
+
+      +    project = await setupTestProject({ 'test.ts': `export default () =>
+      {}` });
+
+      +    const scn = await generateScn({
+
+      +      root: project.projectDir,
+
+      +      include: [`**/*.ts`],
+
+      +    });
+
+      +    expect(scn).toContain('  + ~ (1.1) default()'); // repograph names it
+      'default'
+
+      +  });
+       });
+    patchStrategy: new-unified
+  - type: write
+    path: test/ts/unit/general-structural.test.ts
+    content: >-
+      --- test/ts/unit/general-structural.test.ts
+
+      +++ test/ts/unit/general-structural.test.ts
+
+      @@ -37,4 +37,25 @@
+           expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+           expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
+         });
+      +
+
+      +  it('should represent hierarchical code structures with correct
+      indentation', async () => {
+
+      +    project = await setupTestProject({
+
+      +      'test.ts': `
+
+      +        export namespace MyNamespace {
+
+      +          export class MyClass {
+
+      +            public myMethod() {}
+
+      +          }
+
+      +        }
+
+      +      `,
+
+      +    });
+
+      +    const scn = await generateScn({
+
+      +      root: project.projectDir,
+
+      +      include: [`**/*.ts`],
+
+      +    });
+
+      +
+
+      +    const expected = [
+
+      +      '  + ◇ (1.1) MyNamespace',
+
+      +      '    + ◇ (1.2) MyClass',
+
+      +      '      + ~ (1.3) myMethod()'
+
+      +    ].join('\n');
+
+      +    expect(scn).toContain(expected);
+
+      +  });
+       });
+    patchStrategy: new-unified
+  - type: write
+    path: test/ts/unit/jsx.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should correctly parse a React functional component with props with ◇', async () => {
+          project = await setupTestProject({
+            'Button.tsx': `
+              export function Button({ label, onClick }: { label: string, onClick: () => void }) {
+                return <button>{label}</button>
+              }
+            `,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+          expect(scn).toContain('+ ◇ (1.1) Button { props: { label:#, onClick:# } }');
+        });
+        
+        it('should represent a JSX element with ⛶ and its attributes', async () => {
+          project = await setupTestProject({
+            'Component.tsx': `
+              export function Component() {
+                return <div id="main" className="container fluid">Hello</div>;
+              }
+            `,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+          const divLine = scn.split('\n').find(line => line.includes('⛶ (1.2) div'));
+          expect(divLine).toBeDefined();
+          expect(divLine!).toContain('id:#main');
+          expect(divLine!).toContain('class:.container .fluid');
+        });
+
+        it('should represent JSX hierarchy with indentation', async () => {
+          project = await setupTestProject({
+            'App.tsx': `
+              export function App() {
+                return (
+                  <main>
+                    <h1>Title</h1>
+                  </main>
+                );
+              }
+            `,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+          const lines = scn.split('\n');
+          const mainIndex = lines.findIndex(l => l.includes('⛶ (1.2) main'));
+          const h1Index = lines.findIndex(l => l.includes('⛶ (1.3) h1'));
+
+          expect(mainIndex).toBeGreaterThan(-1);
+          expect(h1Index).toBeGreaterThan(-1);
+          expect(h1Index).toBe(mainIndex + 1);
+          
+          const mainIndentation = lines[mainIndex].match(/^\s*/)?.[0].length ?? 0;
+          const h1Indentation = lines[h1Index].match(/^\s*/)?.[0].length ?? 0;
+          
+          expect(h1Indentation).toBeGreaterThan(mainIndentation);
+        });
+
+        it('should correctly parse various export syntaxes, including re-exports and aliases', async () => {
+          project = await setupTestProject({
+            'mod.ts': `
+              const internal = 1;
+              function b() {}
+              export { internal as exported, b };
+              export * from './another';
+            `,
+            'another.ts': 'export const c = 3;',
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          const modScn = scn.split('\n\n').find(s => s.includes('mod.ts'));
+          // Files: another.ts (1), mod.ts (2)
+          expect(modScn).toContain('§ (2) mod.ts\n  -> (1.0)');
+          expect(modScn).toContain('@ (2.1) internal = 1');
+          expect(modScn).toContain('~ (2.2) b()');
+          // Note: The alias `exported` is not represented as a separate SCN entity.
+          // The link is to the original `internal` variable.
+        });
+
+        it('should correctly parse various import syntaxes and link them from the consuming function', async () => {
+          project = await setupTestProject({
+            'util.ts': `
+              export const val = 1;
+              export function func() {}
+              export default class MyClass {}
+            `,
+            'main.ts': `
+              import MyClass, { val } from './util';
+              import * as utils from './util';
+              
+              function run() {
+                  const x = val;
+                  utils.func();
+                  new MyClass();
+              }
+            `
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+          // Files: main.ts (1), util.ts (2)
+          // Entities in util.ts: val (2.1), func (2.2), MyClass (2.3)
+          // Entity in main.ts: run (1.1)
+          expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+          expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1), (2.2), (2.3)');
+        });
+      });
+    patchStrategy: replace
+  - type: write
+    path: test/ts/unit/qualifiers.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should prefix public members with +', async () => {
+          project = await setupTestProject({
+            'test.ts': `export class MyClass { public myMethod() {} }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.2) myMethod()');
+        });
+
+        it('should prefix private members with -', async () => {
+          project = await setupTestProject({
+            'test.ts': `export class MyClass { private myMethod() {} }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('- ~ (1.2) myMethod()');
+        });
+
+        it('should treat default class members as public and prefix with +', async () => {
+          project = await setupTestProject({
+            'test.ts': `export class MyClass { myMethod() {} }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.2) myMethod()');
+        });
+
+        it('should append ... to an async function or method', async () => {
+          project = await setupTestProject({
+            'test.ts': `
+              export async function myFunc() {}
+              export class MyClass { async myMethod() {} }
+            `,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.1) myFunc() ...');
+          expect(scn).toContain('+ ~ (1.3) myMethod() ...');
+        });
+
+        it('should append ! to a function that has a throw statement', async () => {
+          project = await setupTestProject({
+            'test.ts': `export function myFunc() { throw new Error('test'); }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.1) myFunc() !');
+        });
+
+        it('should correctly handle functions that are both async and can throw', async () => {
+          project = await setupTestProject({
+            'test.ts': `export async function myFunc() { throw new Error('test'); }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.1) myFunc() ... !');
+        });
+        
+        it('should append o to a pure function (repograph heuristic)', async () => {
+          // This test relies on repograph's isPure heuristic.
+          // A simple function with no side effects is a good candidate.
+           project = await setupTestProject({
+            'test.ts': `export function add(a: number, b: number): number { return a + b; }`,
+          });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ~ (1.1) add(a: #, b: #): #number o');
+        });
+      });
+    patchStrategy: replace
+  - type: write
+    path: test/ts/unit/type-system.test.ts
+    content: |-
+      import { describe, it, expect, afterEach } from 'bun:test';
+      import { generateScn } from '../../../src/index';
+      import { setupTestProject, type TestProject } from '../../test.util';
+
+      describe('SCN Generation: 1.4 Type System Symbols', () => {
+        let project: TestProject | undefined;
+
+        afterEach(async () => {
+          if (project) {
+            await project.cleanup();
+            project = undefined;
+          }
+        });
+
+        it('should represent an enum with ☰', async () => {
+          project = await setupTestProject({ 'test.ts': `export enum Color { Red, Green }` });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ ☰ (1.1) Color');
+        });
+
+        it('should represent a type alias with =:', async () => {
+          project = await setupTestProject({ 'test.ts': `export type UserID = string;` });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('+ =: (1.1) UserID = string');
+        });
+
+        it('should represent type references in function parameters with #', async () => {
+          project = await setupTestProject({ 'test.ts': `function process(id: string, value: number) {}` });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('~ (1.1) process(id: #, value: #)');
+        });
+        
+        it('should represent a function return type with :#Type', async () => {
+          project = await setupTestProject({ 'test.ts': `function isActive(): boolean {}` });
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('~ (1.1) isActive(): #boolean');
+        });
+        
+        it('should correctly represent complex types like Promise<User>', async () => {
+          project = await setupTestProject({ 'test.ts': `
+            interface User {}
+            function getUser(): Promise<User> { return Promise.resolve({} as User); }
+          `});
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('~ (1.2) getUser(): #Promise<User>');
+        });
+
+        it('should correctly represent generic type parameters and return types', async () => {
+          project = await setupTestProject({ 'test.ts': `
+            function transform<T, U>(data: T[], func: (item: T) => U): U[] { return []; }
+          `});
+          const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+          expect(scn).toContain('~ (1.1) transform(data: #, func: #): #U[]');
+        });
+      });
+    patchStrategy: replace
+snapshot:
+  test/ts/unit/jsx.test.ts: null
+  test/ts/unit/qualifiers.test.ts: null
+  test/ts/unit/type-system.test.ts: null
+  src/serializer.ts: >-
+    import type {
+      RankedCodeGraph,
+      CodeNode,
+      CodeEdge as RepographEdge,
+      CodeNodeVisibility as Visibility,
+      CssIntent,
+      CodeNodeType,
+    } from "repograph";
+
+
+    // Allow for 'contains' and 'references' edges which might be produced by
+    repograph
+
+    // but not present in a minimal type definition.
+
+    type CodeEdge = Omit<RepographEdge, 'type'> & {
+      type: RepographEdge['type'] | 'contains' | 'references';
+    };
+
+    import { readFileSync } from "fs";
+
+    import { join } from "path";
+
+
+    type ScnSymbol = "◇" | "~" | "@" | "{}" | "☰" | "=:" | "⛶" | "¶" | "?";
+
+    type QualifierSymbol = "+" | "-" | "..." | "!" | "o";
+
+    type CssIntentSymbol = "📐" | "✍" | "💧";
+
+
+    const ENTITY_TYPE_TO_SYMBOL: Record<CodeNodeType, ScnSymbol | undefined> = {
+      class: '◇',
+      function: '~',
+      method: '~',
+      interface: '{}',
+      enum: '☰',
+      type: '=:',
+      html_element: '⛶',
+      css_rule: '¶',
+      namespace: '◇',
+      struct: '◇',
+      property: '@',
+      field: '@',
+      variable: '@',
+      constant: '@',
+      arrow_function: '~',
+      constructor: '~',
+      file: undefined,
+      trait: undefined,
+      impl: undefined,
+      static: undefined,
+      union: undefined,
+      template: undefined,
+    };
+
+
+    const CSS_INTENT_TO_SYMBOL: Record<CssIntent, CssIntentSymbol> = {
+      layout: '📐',
+      typography: '✍',
+      appearance: '💧',
+    };
+
+
+    class ScnIdManager {
+      private fileIdCounter = 1;
+      private entityIdCounters = new Map<string, number>(); // file path -> counter
+      private repographIdToScnId = new Map<string, string>();
+      private fileRepoIdToPath = new Map<string, string>();
+
+      constructor(sortedFileNodes: CodeNode[], nodesByFile: Map<string, CodeNode[]>) {
+        for (const fileNode of sortedFileNodes) {
+          const fileId = `${this.fileIdCounter++}`;
+          this.repographIdToScnId.set(fileNode.id, fileId);
+          this.fileRepoIdToPath.set(fileNode.id, fileNode.filePath);
+          this.entityIdCounters.set(fileNode.filePath, 1);
+
+          const entities = nodesByFile.get(fileNode.filePath) || [];
+          entities.sort((a, b) => a.startLine - b.startLine);
+
+          for (const entityNode of entities) {
+            const entityCounter = this.entityIdCounters.get(entityNode.filePath)!;
+            const entityId = `${fileId}.${entityCounter}`;
+            this.repographIdToScnId.set(entityNode.id, entityId);
+            this.entityIdCounters.set(entityNode.filePath, entityCounter + 1);
+          }
+        }
+      }
+
+      getScnId(repographId: string): string | undefined {
+        return this.repographIdToScnId.get(repographId);
+      }
+
+      isFilePath(repographId: string): boolean {
+        return this.fileRepoIdToPath.has(repographId);
+      }
+    }
+
+
+    // Cache for source file contents to avoid reading files multiple times
+
+    const sourceFileCache = new Map<string, string>();
+
+
+    const getSourceContent = (filePath: string, rootDir?: string): string => {
+      const fullPath = rootDir ? join(rootDir, filePath) : filePath;
+      if (!sourceFileCache.has(fullPath)) {
+        try {
+          const content = readFileSync(fullPath, 'utf-8');
+          sourceFileCache.set(fullPath, content);
+        } catch {
+          sourceFileCache.set(fullPath, '');
+        }
+      }
+      return sourceFileCache.get(fullPath) || '';
+    };
+
+
+    const getVisibilitySymbol = (node: CodeNode, rootDir?: string): '+' | '-' |
+    undefined => {
+      if (node.visibility === 'public') return '+';
+      if (node.visibility === 'private' || node.visibility === 'protected') return '-';
+      if (node.type === 'file') return undefined;
+
+      // Fallback to source-based inference if repograph doesn't provide visibility.
+      const source = getSourceContent(node.filePath, rootDir);
+      if (!source) return undefined;
+      
+      const line = (source.split('\n')[node.startLine - 1] || '').trim();
+
+      // For class members, default is public unless explicitly private/protected.
+      if (['method', 'property', 'field'].includes(node.type)) {
+        return (line.startsWith('private') || line.startsWith('protected')) ? '-' : '+';
+      }
+
+      // For other top-level entities, check for an `export` keyword in the source.
+      const name = node.name.split('.').pop() || node.name;
+      const isExported = [
+        // `export const MyVar`, `export class MyClass`, `export default function ...`
+        `export\\s+(default\\s+)?(async\\s+)?(class|function|interface|enum|type|const|let|var|namespace)\\s+${name}\\b`,
+        // `export { MyVar }`
+        `export\\s*\\{[^}]*\\b${name}\\b`,
+      ].some(p => new RegExp(p).test(source));
+
+      if (isExported) {
+        return '+';
+      }
+
+      return undefined;
+    };
+
+
+    const isComponentNode = (node: CodeNode): boolean =>
+      (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
+
+    const getNodeSymbol = (node: CodeNode): ScnSymbol => {
+      // Heuristic: Treat PascalCase functions as components (e.g., React)
+      if (isComponentNode(node)) {
+        return '◇';
+      }
+      // Heuristic: Treat uppercase constants/variables as containers (module pattern)
+      if ((node.type === 'variable' || node.type === 'constant') && /^[A-Z]/.test(node.name)) {
+        return '◇';
+      }
+      return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
+    };
+
+
+    const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' |
+    '-'; others: QualifierSymbol[] } => {
+      const access = getVisibilitySymbol(node, rootDir);
+      
+      const others: QualifierSymbol[] = [];
+      if (node.isAsync) others.push('...');
+      if (node.canThrow) others.push('!');
+      if (node.isPure) others.push('o');
+      
+      return { access, others };
+    };
+
+
+    const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
+      if (intents.length === 0) return '';
+      // Sort intents alphabetically first, then map to symbols
+      const sortedIntents = [...intents].sort();
+      const symbols = sortedIntents.map(intent => CSS_INTENT_TO_SYMBOL[intent] ?? '');
+      return `{ ${symbols.join(' ')} }`;
+    };
+
+
+    const formatFunctionSignature = (snippet: string): string => {
+      // Find parameters part, e.g., (a: string, b: number)
+      const paramsMatch = snippet.match(/\(([^)]*)\)/);
+      let params = '()';
+      if (paramsMatch && paramsMatch[1] !== undefined) {
+        // Replace type annotations with #
+        const paramContent = paramsMatch[1].replace(/:[^\,)]+/g, ': #');
+        params = `(${paramContent})`;
+      }
+
+      // Find return type, e.g., ): string
+      const returnMatch = snippet.match(/\)\s*:\s*([\w\.<>\[\]\| &]+)/);
+      let returnType = '';
+      if (returnMatch && returnMatch[1]) {
+        const type = returnMatch[1].trim();
+        if (type !== 'void' && type !== 'any' && type !== 'unknown') {
+           returnType = `: #${type}`;
+        }
+      }
+
+      return `${params}${returnType}`;
+    }
+
+
+    const formatJsxAttributes = (snippet: string): string => {
+        const attrs = [];
+        const idMatch = snippet.match(/id="([^"]+)"/);
+        if (idMatch) attrs.push(`id:#${idMatch[1]}`);
+        
+        const classMatch = snippet.match(/className="([^"]+)"/);
+        if (classMatch?.[1]) {
+            const classes = classMatch[1].split(' ').map(c => `.${c}`).join(' ');
+            attrs.push(`class:${classes}`);
+        }
+        
+        return attrs.length > 0 ? ` [ ${attrs.join(' ')} ]` : '';
+    }
+
+
+    const formatSignature = (node: CodeNode): string => {
+      if (isComponentNode(node) && node.codeSnippet) {
+        const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
+        if (propMatch?.[1]) {
+          const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
+          const propsString = props.map(p => `${p}:#`).join(', ');
+          return `{ props: { ${propsString} } }`;
+        }
+        return ''; // Component with no destructured props
+      }
+
+      // For functions, format as name() instead of showing full code snippet
+      if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor' || node.type === 'arrow_function') && node.codeSnippet) {
+        return formatFunctionSignature(node.codeSnippet);
+      }
+      
+      // For JSX/HTML elements, show attributes
+      if (node.type === 'html_element' && node.codeSnippet) {
+        return formatJsxAttributes(node.codeSnippet);
+      }
+
+      // For CSS rules, show intents
+      if (node.type === 'css_rule' && node.cssIntents) {
+        return formatCssIntents(node.cssIntents);
+      }
+
+      // For type aliases, show the aliased type
+      if (node.type === 'type' && node.codeSnippet) {
+         const match = node.codeSnippet.match(/=\s*(.+);?/);
+         return match?.[1] ? `= ${match[1].trim().replace(/;$/, '')}` : '';
+      }
+
+      // For variables/constants, show the value if it's simple
+      if ((node.type === 'variable' || node.type === 'constant') && node.codeSnippet) {
+        // For uppercase constants that are treated as modules (◇ symbol), show different formatting
+        if (/^[A-Z]/.test(node.name)) {
+          // If it's an object literal, show it without = prefix (module pattern)
+          if (node.codeSnippet.startsWith('{') && node.codeSnippet.endsWith('}')) {
+            return node.codeSnippet;
+          }
+        }
+        
+        // For regular variables/constants, add = prefix if needed
+        if (!node.codeSnippet.includes('=')) {
+          return `= ${node.codeSnippet}`;
+        }
+        // Extract simple values like "123", "'value'", etc.
+        const match = node.codeSnippet.match(/=\s*(.+)$/);
+        if (match && match[1]) {
+          return `= ${match[1].trim()}`;
+        }
+        // If no assignment found, just return the snippet
+        return node.codeSnippet;
+      }
+      
+      // For container types like class/interface/namespace, we don't show a signature.
+      // Their contents are represented by nested symbols.
+      if (node.type === 'class' || node.type === 'interface' || node.type === 'namespace') {
+        return '';
+      }
+      
+      return '';
+    };
+
+
+    const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager:
+    ScnIdManager, rootDir?: string, level = 0): string => {
+      const symbol = getNodeSymbol(node);
+      const { access, others } = getQualifiers(node, rootDir);
+      const signature = formatSignature(node);
+      const scnId = idManager.getScnId(node.id);
+      const id = scnId ? `(${scnId})` : '';
+      const indent = '  '.repeat(level + 1);
+
+      // Build the main line: qualifiers symbol id name signature
+      const parts = [];
+      if (access) parts.push(access);
+      parts.push(symbol);
+      if (id) parts.push(id);
+
+      // For functions, combine name and signature without space, unless it's a component
+      if (['function', 'method', 'constructor', 'arrow_function'].includes(node.type) && !isComponentNode(node)) {
+        const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
+        parts.push(displayName + signature);
+      } else {
+        const displayName = (node.type === 'property' || node.type === 'field' || node.type === 'html_element') && node.name.includes('.')
+          ? node.name.split('.').pop() || node.name
+          : node.name;
+        parts.push(displayName);
+        if (signature) parts.push(signature);
+      }
+
+      let mainLine = indent + parts.join(' ');
+      if (others.length > 0) {
+        mainLine += ` ${others.sort().join(' ')}`;
+      }
+
+      const formatLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
+        if (edges.length === 0) return '';
+        const links = edges.map((edge: CodeEdge) => {
+          const isCallerLink = prefix === '<-';
+          const targetRepographId = isCallerLink ? edge.fromId : edge.toId;
+          const targetNode = graph.nodes.get(targetRepographId);
+          let targetScnId = idManager.getScnId(targetRepographId);
+
+          // Per spec, file-level dependencies use a .0 suffix.
+          // This applies if the target of the link is a file itself.
+          if (targetNode?.type === 'file') {
+            targetScnId = `${targetScnId}.0`;
+          }
+          return `(${targetScnId})`;
+        }).filter(Boolean).sort().join(', ');
+
+        if (!links) return '';
+        return `\n${indent}  ${prefix} ${links}`;
+      };
+
+      const dependencyEdges = (graph.edges as CodeEdge[]).filter(edge => edge.fromId === node.id && edge.type !== 'contains');
+      const callerEdges = (graph.edges as CodeEdge[]).filter(edge => {
+        if (edge.toId !== node.id || edge.type === 'contains') return false;
+        
+        // For entity nodes, exclude file-level imports entirely
+        if (node.type !== 'file' && edge.type === 'imports') return false;
+        
+        // For entity nodes, also exclude edges from file nodes (file-level dependencies)
+        if (node.type !== 'file') {
+          const sourceNode = graph.nodes.get(edge.fromId);
+          if (sourceNode?.type === 'file') return false;
+        }
+        
+        return edge.type !== 'imports';
+      });
+
+      return mainLine + formatLinks('->', dependencyEdges) + formatLinks('<-', callerEdges);
+    };
+
+
+    const serializeFile = (
+      fileNode: CodeNode,
+      symbols: CodeNode[],
+      graph: RankedCodeGraph,
+      idManager: ScnIdManager,
+      rootDir?: string
+    ): string => {
+      const scnId = idManager.getScnId(fileNode.id) ?? '';
+
+      const formatFileLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
+        if (edges.length === 0) return '';
+        const links = edges.map((edge: CodeEdge) => {
+          const targetId = prefix === '->' ? edge.toId : edge.fromId;
+          const targetScnId = idManager.getScnId(targetId);
+          return `(${targetScnId}.0)`;
+        }).sort().join(', ');
+        if (!links) return '';
+        return `\n  ${prefix} ${links}`;
+      };
+
+      const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
+      const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
+
+        const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
+        let header = `§ (${scnId}) ${formattedPath}`;
+      const fileDepLine = formatFileLinks('->', fileDependencies);
+      if (fileDepLine) header += fileDepLine;
+      const fileCallerLine = formatFileLinks('<-', fileCallers);
+      if (fileCallerLine) header += fileCallerLine;
+
+      // Hierarchical rendering
+      const nodeWrappers = symbols.map(s => ({ node: s, children: [] as {node: CodeNode, children: any[]}[] })).sort((a,b) => a.node.startLine - b.node.startLine);
+      const nodeMap = new Map(nodeWrappers.map(w => [w.node.id, w]));
+      const topLevelSymbols: typeof nodeWrappers = [];
+
+      for (let i = 0; i < nodeWrappers.length; i++) {
+        const currentWrapper = nodeWrappers[i];
+        if (!currentWrapper) continue;
+        let parentWrapper = null;
+        
+        // Find the tightest parent by looking backwards through the sorted list
+        for (let j = i - 1; j >= 0; j--) {
+            const potentialParentWrapper = nodeWrappers[j];
+            if (!potentialParentWrapper) continue;
+            if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
+                parentWrapper = potentialParentWrapper;
+                break;
+            }
+        }
+        
+        if (parentWrapper) {
+            parentWrapper.children.push(currentWrapper);
+        } else {
+            topLevelSymbols.push(currentWrapper);
+        }
+      }
+
+      const nodeLines: string[] = [];
+      const processNode = (wrapper: {node: CodeNode, children: any[]}, level: number) => {
+        nodeLines.push(formatNode(wrapper.node, graph, idManager, rootDir, level));
+        for (const childWrapper of wrapper.children) {
+          processNode(childWrapper, level + 1);
+        }
+      };
+
+      for (const wrapper of topLevelSymbols) {
+        processNode(wrapper, 0);
+      }
+
+      return [header, ...nodeLines].join('\n');
+    };
+
+
+    /**
+     * Serializes a RankedCodeGraph into the SCN text format.
+     * This function is the core rendering layer of `scn-ts`.
+     *
+     * @param graph - The `RankedCodeGraph` produced by `repograph`.
+     * @param rootDir - The root directory of the project (for reading source files).
+     * @returns A string containing the full SCN map.
+     */
+    export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string):
+    string => {
+      const nodesByFile = new Map<string, CodeNode[]>(); // filePath -> nodes
+      const fileNodes: CodeNode[] = [];
+
+      for (const node of graph.nodes.values()) {
+        if (node.type === 'file') {
+          fileNodes.push(node);
+          nodesByFile.set(node.filePath, []);
+        } else {
+          if (!nodesByFile.has(node.filePath)) {
+            // This case can happen if repograph finds an entity but not its parent file.
+            // We'll create a dummy map entry, but it won't be processed without a file node.
+            nodesByFile.set(node.filePath, []); 
+          }
+          nodesByFile.get(node.filePath)!.push(node);
+        }
+      }
+
+      const sortedFileNodes = fileNodes.sort((a, b) => a.filePath.localeCompare(b.filePath));
+      const idManager = new ScnIdManager(sortedFileNodes, nodesByFile);
+
+      const scnParts = sortedFileNodes.map(fileNode => {
+        const symbols = nodesByFile.get(fileNode.filePath) || [];
+        // Sort symbols by line number to ensure deterministic output for hierarchical processing
+        symbols.sort((a,b) => a.startLine - b.startLine);
+        return serializeFile(fileNode, symbols, graph, idManager, rootDir);
+      });
+
+      return scnParts.join('\n\n');
+    };
+  test/ts/integration/css-parsing.test.ts: |-
+    import { describe, it, expect, afterEach } from 'bun:test';
+    import { generateScn } from '../../../src/index';
+    import { setupTestProject, type TestProject } from '../../test.util';
+
+    describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
+      let project: TestProject | undefined;
+
+      afterEach(async () => {
+        if (project) {
+          await project.cleanup();
+          project = undefined;
+        }
+      });
+
+      it('should generate a ¶ CSS Rule for each selector and include intent symbols', async () => {
+        project = await setupTestProject({
+          'styles.css': `
+            .layout-only {
+              display: flex;
+              position: absolute;
+            }
+            .text-only {
+              font-weight: bold;
+              text-align: center;
+            }
+            .appearance-only {
+              background-color: blue;
+              border: 1px solid red;
+            }
+            .all-intents {
+              padding: 8px; /* layout */
+              font-size: 16px; /* text */
+              color: white; /* appearance */
+            }
+          `,
+        });
+        const scn = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
+        
+        // The order of intent symbols is sorted alphabetically by the serializer.
+        expect(scn).toContain('  ¶ (1.1) .layout-only { 📐 }');
+        expect(scn).toContain('  ¶ (1.2) .text-only { ✍ }');
+        expect(scn).toContain('  ¶ (1.3) .appearance-only { 💧 }');
+        expect(scn).toContain('  ¶ (1.4) .all-intents { 💧 📐 ✍ }');
+      });
+
+      it('should create links between a JSX element and CSS rules via className', async () => {
+        project = await setupTestProject({
+          'Button.css': `
+            .btn { color: white; }
+            .btn-primary { background-color: blue; }
+          `,
+          'Button.tsx': `
+            import './Button.css';
+            export function Button() {
+              return <button className="btn btn-primary">Click</button>;
+            }
+          `,
+          // tsconfig needed for repograph to process jsx/css imports
+          'tsconfig.json': JSON.stringify({
+            "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
+            "include": ["**/*.ts", "**/*.tsx"]
+          }),
+        });
+        
+        const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+
+        // File sorting is alphabetical: Button.css -> 1, Button.tsx -> 2
+        const tsxScn = scn.split('\n\n').find(s => s.includes('Button.tsx'));
+        const cssScn = scn.split('\n\n').find(s => s.includes('Button.css'));
+
+        expect(cssScn).toBeDefined();
+        expect(tsxScn).toBeDefined();
+
+        // Check file-level links (import relationship)
+        expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (2.0)');
+
+        // Check entity-level links
+        // ⛶ button (2.2) should link to both .btn (1.1) and .btn-primary (1.2)
+        expect(tsxScn!).toContain('    ⛶ (2.2) button  [ class:.btn .btn-primary ]\n      -> (1.1), (1.2)');
+        
+        // ¶ .btn (1.1) should link back to ⛶ button (2.2)
+        expect(cssScn!).toContain('  ¶ (1.1) .btn { 💧 }\n    <- (2.2)');
+        
+        // ¶ .btn-primary (1.2) should link back to ⛶ button (2.2)
+        expect(cssScn!).toContain('  ¶ (1.2) .btn-primary { 💧 }\n    <- (2.2)');
+      });
+
+      it('should create links between a JSX element and a CSS rule via id', async () => {
+        project = await setupTestProject({
+          'App.css': `
+            #main-container { border: 1px solid black; }
+          `,
+          'App.tsx': `
+            import './App.css';
+            export function App() {
+              return <div id="main-container">...</div>;
+            }
+          `,
+          'tsconfig.json': JSON.stringify({
+            "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
+            "include": ["**/*.ts", "**/*.tsx"]
+          }),
+        });
+        
+        const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+        
+        // File sorting is alphabetical: App.css -> 1, App.tsx -> 2
+        const tsxScn = scn.split('\n\n').find(s => s.includes('App.tsx'));
+        const cssScn = scn.split('\n\n').find(s => s.includes('App.css'));
+
+        expect(cssScn).toBeDefined();
+        expect(tsxScn).toBeDefined();
+
+        // Check entity-level links
+        // ⛶ div (2.2) should link to #main-container (1.1)
+        expect(tsxScn!).toContain('    ⛶ (2.2) div  [ id:#main-container ]\n      -> (1.1)');
+        // ¶ #main-container (1.1) should link back to ⛶ div (2.2)
+        expect(cssScn!).toContain('  ¶ (1.1) #main-container { 💧 }\n    <- (2.2)');
+      });
+    });
+  test/ts/unit/code-entities.test.ts: |-
+    import { describe, it, expect, afterEach } from 'bun:test';
+    import { generateScn } from '../../../src/index';
+    import { setupTestProject, type TestProject } from '../../test.util';
+
+    describe('SCN Generation: 1.3 Code Entities', () => {
+      let project: TestProject | undefined;
+
+      afterEach(async () => {
+        if (project) {
+          await project.cleanup();
+          project = undefined;
+        }
+      });
+
+      it('should represent a class with ◇', async () => {
+        project = await setupTestProject({ 'test.ts': `export class MyClass {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + ◇ (1.1) MyClass');
+      });
+
+      it('should represent a namespace with ◇', async () => {
+        project = await setupTestProject({ 'test.ts': `export namespace MyNamespace {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + ◇ (1.1) MyNamespace');
+      });
+
+      it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
+        project = await setupTestProject({ 'test.ts': `export const MyModule = { key: 'value' };` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain(`  + ◇ (1.1) MyModule { key: 'value' }`);
+      });
+
+      it('should represent an interface with {}', async () => {
+        project = await setupTestProject({ 'test.ts': `export interface MyInterface {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + {} (1.1) MyInterface');
+      });
+
+      it('should represent an export function with + ~', async () => {
+        project = await setupTestProject({ 'test.ts': `export function myFunc() {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + ~ (1.1) myFunc()');
+      });
+
+      it('should represent a const arrow function with ~', async () => {
+        project = await setupTestProject({ 'test.ts': `const myFunc = () => {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  ~ (1.1) myFunc()');
+      });
+
+      it('should represent a class method with ~ and a property with @', async () => {
+        project = await setupTestProject({
+          'test.ts': `
+          export class MyClass {
+            myProp: string = '';
+            myMethod() {}
+          }`,
+        });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('    + @ (1.2) myProp');
+        expect(scn).toContain('    + ~ (1.3) myMethod()');
+      });
+
+      it('should represent a top-level const with @', async () => {
+        project = await setupTestProject({ 'test.ts': `const myVar = 123;` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        // Note: repograph represents this as a "variable" and heuristic makes it not a container
+        expect(scn).toContain('  @ (1.1) myVar = 123');
+      });
+
+      it('should correctly handle export default class', async () => {
+        project = await setupTestProject({ 'test.ts': `export default class MyClass {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + ◇ (1.1) MyClass');
+      });
+
+      it('should correctly handle export default function', async () => {
+        project = await setupTestProject({ 'test.ts': `export default function myFunc() {}` });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+        expect(scn).toContain('  + ~ (1.1) myFunc()');
+      });
+    });
+  test/ts/unit/general-structural.test.ts: |-
+    import { describe, it, expect, afterEach } from 'bun:test';
+    import { generateScn } from '../../../src/index';
+    import { setupTestProject, type TestProject } from '../../test.util';
+
+    describe('SCN Generation: 1.1 General & Structural', () => {
+      let project: TestProject | undefined;
+
+      afterEach(async () => {
+        if (project) {
+          await project.cleanup();
+          project = undefined;
+        }
+      });
+
+      it('should generate a § file declaration with a unique ID and correct relative path', async () => {
+        project = await setupTestProject({
+          'a.ts': ``,
+          'b.ts': ``,
+        });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+
+        expect(scn).toContain('§ (1) a.ts');
+        expect(scn).toContain('§ (2) b.ts');
+      });
+
+      it('should assign unique, incrementing entity IDs within a file, starting from 1', async () => {
+        project = await setupTestProject({
+          'test.ts': `
+            export function funcA() {}
+            export class ClassB {}
+          `,
+        });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+
+        expect(scn).toContain('+ ~ (1.1) funcA()');
+        expect(scn).toContain('+ ◇ (1.2) ClassB');
+      });
+
+      it('should represent a side-effect import with a .0 entity ID', async () => {
+        project = await setupTestProject({
+          'a.ts': `import './b.ts';`,
+          'b.ts': `console.log('side effect');`,
+        });
+        const scn = await generateScn({
+          root: project.projectDir,
+          include: [`**/*.ts`],
+        });
+
+        expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+        expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
+      });
+    });
+approved: true

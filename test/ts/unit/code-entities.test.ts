@@ -109,4 +109,13 @@ describe('SCN Generation: 1.3 Code Entities', () => {
     });
     expect(scn).toContain('  + ~ (1.1) myFunc()');
   });
+
+  it('should correctly handle export default anonymous function', async () => {
+    project = await setupTestProject({ 'test.ts': `export default () => {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ~ (1.1) default()'); // repograph names it 'default'
+  });
 });

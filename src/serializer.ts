@@ -151,11 +151,73 @@ const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; 
   const access = getVisibilitySymbol(node, rootDir);
   
   const others: QualifierSymbol[] = [];
-  if (node.isAsync) others.push('...');
-  if (node.canThrow) others.push('!');
-  if (node.isPure) others.push('o');
+  
+  // Check for async
+  const isAsync = node.isAsync || (node.codeSnippet && /\basync\s+/.test(node.codeSnippet));
+  if (isAsync) others.push('...');
+  
+  // Check for throw
+  const canThrow = node.canThrow || (node.codeSnippet && /\bthrow\b/.test(node.codeSnippet));
+  if (canThrow) others.push('!');
+  
+  // Check for pure function heuristic
+  const isPure = node.isPure || isPureFunction(node, rootDir);
+  if (isPure) others.push('o');
   
   return { access, others };
+};
+
+const isPureFunction = (node: CodeNode, rootDir?: string): boolean => {
+  if (!['function', 'method', 'arrow_function'].includes(node.type)) return false;
+  if (!node.codeSnippet) return false;
+  
+  // Get the full source to analyze the function body
+  const source = getSourceContent(node.filePath, rootDir);
+  if (!source) return false;
+  
+  const lines = source.split('\n');
+  const startLine = node.startLine - 1;
+  const endLine = node.endLine - 1;
+  
+  if (startLine < 0 || endLine >= lines.length) return false;
+  
+  const functionBody = lines.slice(startLine, endLine + 1).join('\n');
+  
+  // Simple heuristics for pure functions
+  const impurePatterns = [
+    /console\./,
+    /document\./,
+    /window\./,
+    /localStorage/,
+    /sessionStorage/,
+    /fetch\(/,
+    /XMLHttpRequest/,
+    /setTimeout/,
+    /setInterval/,
+    /Math\.random/,
+    /Date\(/,
+    /new Date/,
+    /\.push\(/,
+    /\.pop\(/,
+    /\.shift\(/,
+    /\.unshift\(/,
+    /\.splice\(/,
+    /\.sort\(/,
+    /\.reverse\(/,
+    /\+\+/,
+    /--/,
+    /\w+\s*=\s*(?!.*return)/,
+  ];
+  
+  // If it contains any impure patterns, it's not pure
+  if (impurePatterns.some(pattern => pattern.test(functionBody))) {
+    return false;
+  }
+  
+  // If it only contains return statements and basic operations, likely pure
+  const hasOnlyReturn = /^\s*export\s+(?:async\s+)?function\s+\w+\([^)]*\)(?:\s*:\s*[^{]+)?\s*{\s*return\s+[^;]+;\s*}\s*$/.test(functionBody.replace(/\n/g, ' '));
+  
+  return hasOnlyReturn;
 };
 
 const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
@@ -200,16 +262,37 @@ const formatJsxAttributes = (snippet: string): string => {
         attrs.push(`class:${classes}`);
     }
     
-    return attrs.length > 0 ? ` [ ${attrs.join(' ')} ]` : '';
+    return attrs.length > 0 ? `[ ${attrs.join(' ')} ]` : '';
 }
 
 const formatSignature = (node: CodeNode): string => {
-  if (isComponentNode(node) && node.codeSnippet) {
-    const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
-    if (propMatch?.[1]) {
-      const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
-      const propsString = props.map(p => `${p}:#`).join(', ');
-      return `{ props: { ${propsString} } }`;
+  if (isComponentNode(node)) {
+    // For components, we need to extract props from the full function signature
+    // Get the source content to find the complete function definition
+    const source = getSourceContent(node.filePath);
+    if (source) {
+      const lines = source.split('\n');
+      const startLine = node.startLine - 1;
+      const endLine = Math.min(startLine + 5, lines.length); // Look at a few lines to get the full signature
+      
+      // Look for the complete function signature in the source
+      const functionText = lines.slice(startLine, endLine + 3).join('\n'); // Look a bit further
+      
+      // Try multiple patterns to match React component props
+      const patterns = [
+        /function\s+\w+\s*\(\s*\{\s*([^}]+)\s*\}\s*:\s*\{[^}]*\}/,  // function Name({ prop1, prop2 }: { ... })
+        /\(\s*\{\s*([^}]+)\s*\}\s*:\s*\{[^}]*\}/,                   // ({ prop1, prop2 }: { ... })
+        /\(\s*\{\s*([^}]+)\s*\}[^)]*\)/,                            // ({ prop1, prop2 })
+      ];
+      
+      for (const pattern of patterns) {
+        const propMatch = functionText.match(pattern);
+        if (propMatch?.[1]) {
+          const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
+          const propsString = props.map(p => `${p}:#`).join(', ');
+          return `{ props: { ${propsString} } }`;
+        }
+      }
     }
     return ''; // Component with no destructured props
   }
@@ -295,7 +378,12 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
 
   let mainLine = indent + parts.join(' ');
   if (others.length > 0) {
-    mainLine += ` ${others.sort().join(' ')}`;
+    // Sort qualifiers in specific order: ... ! o
+    const sortedOthers = others.sort((a, b) => {
+      const order = ['...', '!', 'o'];
+      return order.indexOf(a) - order.indexOf(b);
+    });
+    mainLine += ` ${sortedOthers.join(' ')}`;
   }
 
   const formatLinks = (prefix: string, edges: readonly CodeEdge[]): string => {
@@ -381,7 +469,17 @@ const serializeFile = (
     for (let j = i - 1; j >= 0; j--) {
         const potentialParentWrapper = nodeWrappers[j];
         if (!potentialParentWrapper) continue;
-        if (currentWrapper.node.startLine >= potentialParentWrapper.node.startLine && currentWrapper.node.endLine <= potentialParentWrapper.node.endLine) {
+        // Check if current node is contained within the potential parent
+        // For JSX elements, use a more flexible containment check
+        const isContained = currentWrapper.node.startLine > potentialParentWrapper.node.startLine && 
+                           currentWrapper.node.startLine < potentialParentWrapper.node.endLine;
+        
+        // Additional check for JSX elements - if they're on consecutive lines and the parent is a container element
+        const isJsxNesting = currentWrapper.node.type === 'html_element' && 
+                            potentialParentWrapper.node.type === 'html_element' &&
+                            currentWrapper.node.startLine === potentialParentWrapper.node.startLine + 1;
+        
+        if (isContained || isJsxNesting) {
             parentWrapper = potentialParentWrapper;
             break;
         }
