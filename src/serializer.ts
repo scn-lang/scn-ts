@@ -319,7 +319,20 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
   };
 
   const dependencyEdges = (graph.edges as CodeEdge[]).filter(edge => edge.fromId === node.id && edge.type !== 'contains');
-  const callerEdges = (graph.edges as CodeEdge[]).filter(edge => edge.toId === node.id && edge.type !== 'imports' && edge.type !== 'contains');
+  const callerEdges = (graph.edges as CodeEdge[]).filter(edge => {
+    if (edge.toId !== node.id || edge.type === 'contains') return false;
+    
+    // For entity nodes, exclude file-level imports entirely
+    if (node.type !== 'file' && edge.type === 'imports') return false;
+    
+    // For entity nodes, also exclude edges from file nodes (file-level dependencies)
+    if (node.type !== 'file') {
+      const sourceNode = graph.nodes.get(edge.fromId);
+      if (sourceNode?.type === 'file') return false;
+    }
+    
+    return edge.type !== 'imports';
+  });
 
   return mainLine + formatLinks('->', dependencyEdges) + formatLinks('<-', callerEdges);
 };
