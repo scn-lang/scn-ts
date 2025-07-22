@@ -1,7 +1,5 @@
 # Directory Structure
 ```
-docs/
-  scn.readme.md
 src/
   cli.ts
   index.ts
@@ -29,299 +27,8 @@ tsconfig.json
 
 # Files
 
-## File: docs/scn.readme.md
-````markdown
-# Symbolic Context Notation (◮ SCN) Specification v1.0
-
-**Symbolic Context Notation (SCN) is a hyper-efficient, language-agnostic format for representing the structural surface, API, and inter-file relationships of a software codebase.** It acts as a compressed blueprint of a project, designed to provide Large Language Models (LLMs) with unparalleled context at a fraction of the token cost of raw source code.
-
-This document is the official specification. It's intended for developers, tool-builders, and anyone interested in the future of AI-assisted software development.
-
----
-
-## 1. The Problem: The "Context Chasm"
-
-Large Language Models are powerful, but they operate with a critical handicap: they lack true understanding of a project's architecture. When we paste code into a prompt, we face a trade-off:
-
-*   **Provide Too Little Code:** The LLM hallucinates, inventing functions, misusing APIs, and failing to see connections between files.
-*   **Provide Too Much Code:** We hit token limits, incur high costs, and the LLM gets lost in irrelevant implementation details, leading to slower, lower-quality responses.
-
-This is the **Context Chasm**. SCN is the bridge.
-
-## 2. The Solution: SCN Philosophy
-
-SCN bridges the chasm by adhering to four principles:
-
-1.  **Extreme Token Efficiency:** Every symbol is chosen to be a single ASCII character where possible, maximizing the information-to-token ratio.
-2.  **Language Agnosticism:** The system abstracts concepts from OOP, FP, and Declarative paradigms into a unified format.
-3.  **Structural Representation:** SCN maps the *graph* of a project—which entity uses which, and which is used by which—revealing the true architecture.
-4.  **Human Scannability:** While machine-optimized, the format is surprisingly readable, allowing developers to quickly grasp a project's structure.
-
----
-
-## 3. Comparison with Other Representations (AST, CST)
-
-To understand SCN's unique value, it's essential to compare it with traditional code representations like Concrete Syntax Trees (CSTs) and Abstract Syntax Trees (ASTs).
-
-| Feature               | **Concrete Syntax Tree (CST)**                               | **Abstract Syntax Tree (AST)**                               | **Symbolic Context Notation (SCN)**                          |
-| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| **Purpose**           | Perfectly represent the source text, including all syntax.   | Represent the abstract semantic structure of the code.       | **Represent the architectural surface & relationships.**     |
-| **Detail Level**      | **Hyper-Detailed.** Includes whitespace, comments, parentheses. | **Detailed.** Abstracts away syntax, focuses on structure.   | **Ultra-Concise.** Abstracts away implementation logic.      |
-| **Scope**             | Single file.                                                 | Single file.                                                 | **Project-wide.** Natively represents inter-file dependencies. |
-| **Language Agnostic?**| No. Highly specific to a language's grammar.                 | Mostly no. Structure is language-specific.                   | **Yes.** Symbolic system unifies concepts across languages.  |
-| **Token Cost**        | Extremely High.                                              | Very High.                                                   | **Extremely Low.** Designed for maximum token efficiency.    |
-| **Example Node**      | `(`, `function`, `myFunc`, `)`, `{`, `}`                     | `FunctionDeclaration(name: "myFunc", body: BlockStatement)`  | `~ (1.1) myFunc()`                                           |
-| **Primary Use Case**  | Parsers, formatters (like Prettier).                         | Compilers, linters, transpilers (like Babel).                | **LLM context, architecture visualization, dependency analysis.** |
-
-**Conclusion:** SCN is not a replacement for ASTs/CSTs. It is a **higher-level abstraction built on top of them**. A tool would first parse source code into an AST and then traverse that AST to generate the even more abstract and relationship-focused SCN map.
-
----
-
-## 4. Before & After: The Power of SCN
-
-The best way to understand SCN is to see it in action.
-
-### Example 1: A Simple JavaScript Class
-
-#### **Before SCN: Raw Source Code (105 tokens)**
-```javascript
-// services/auth.js
-import { findUserByEmail, hashPassword } from './utils';
-
-/**
- * Manages user authentication.
- */
-export class AuthService {
-  constructor(database) {
-    this.db = database;
-  }
-
-  // Tries to log a user in
-  async login(email, password) {
-    const user = await findUserByEmail(this.db, email);
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const hash = hashPassword(password);
-    if (user.passwordHash !== hash) {
-      throw new Error('Invalid password');
-    }
-
-    return user;
-  }
-}
-```
-
-#### **After SCN: The Context Map (21 tokens)**
-```scn
-§ (1) services/auth.js
-  -> (utils.js)       // File-level dependency
-  ◇ (1.1) AuthService
-    + @ db: #(Database)
-    + ~ login(email: #, pass: #): #(User) ...!
-```
-**Result:** A **79% reduction** in tokens. We've thrown away implementation details (`if` statements, internal calls) but preserved the essential API surface: the `AuthService` class has a public `login` method that is `async`, can `throw`, and returns a `User`.
-
-### Example 2: A React Component with CSS
-
-#### **Before SCN: Raw Source Code (HTML, CSS - 131 tokens)**
-```jsx
-// Button.jsx
-import './Button.css';
-
-export function Button({ label, onClick }) {
-  return (
-    <button className="btn btn-primary" onClick={onClick}>
-      {label}
-    </button>
-  );
-}
-
-// Button.css
-.btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-weight: bold;
-}
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-  border: none;
-}
-```
-
-#### **After SCN: The Context Map (38 tokens)**
-```scn
-§ (2) Button.jsx
-  -> (3.0)
-  ◇ (2.1) Button
-    { props: { label:#, onClick:# } }
-    ⛶ (2.2) button [ class:.btn .btn-primary ]
-      -> (3.1), (3.2)
-
-§ (3) Button.css
-  <- (2.0)
-  ¶ (3.1) .btn { 📐 ✍ }
-  ¶ (3.2) .btn-primary { 💧 }
-```
-**Result:** A **71% reduction**. The SCN clearly shows that the `Button` component `(2.1)` has a `button` element `(2.2)` which is styled by two separate CSS rules `(3.1, 3.2)`. The LLM now understands the structural link between the JSX and the CSS without seeing a single pixel value.
-
-### Example 3: A Multi-File Python Application
-
-#### **Before SCN: Raw Source Code (118 tokens)**
-```python
-# services.py
-from models import User
-from database import db_session
-
-def get_user_profile(user_id: int) -> User:
-    user = db_session.query(User).get(user_id)
-    return user
-
-# main.py
-from services import get_user_profile
-
-def main():
-    user = get_user_profile(1)
-    if user:
-        print(f"Hello, {user.name}")
-
-if __name__ == "__main__":
-    main()
-```
-#### **After SCN: The Context Map (31 tokens)**
-```scn
-§ (4) models.py
-  <- (5.0)
-  ◇ (4.1) User
-    + @ id: #(int)
-    + @ name: #(str)
-
-§ (5) services.py
-  -> (4.1), (database.py)
-  <- (6.1)
-  + ~ (5.1) get_user_profile(user_id: #): #(4.1)
-
-§ (6) main.py
-  -> (5.1)
-  ~ (6.1) main()
-    -> (5.1)
-```
-**Result:** A **74% reduction**. The SCN creates a complete dependency graph. It shows that `main.py` calls a function in `services.py`, which in turn depends on the `User` model from `models.py`. An LLM can now reason about the entire application flow.
-
----
-
-## 5. The SCN Specification v1.0
-
-### Core Structure: Files & Entity IDs
-An SCN document is a plain text file representing a project's context.
-
-*   **File Declaration (`§`):** Each file is introduced with a `§` symbol, a unique integer ID, and the file path.
-    `§ (1) path/to/file.js`
-*   **Entity Declaration:** Every significant entity (class, function, etc.) gets a compound ID: `(file_id.entity_id)`.
-    `◇ (1.1) MyClass`
-*   **Dependency Linking (`->`/`<-`):** Relationships are defined by pointing an entity's `->` (dependency) or `<-` (caller) to another entity's unique ID.
-    `~ (1.2) myMethod() -> (2.1)`
-
-### Master Symbol Legend
-
-#### General & Structural
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `§` | **File Path** | Declares a new source file context. |
-| `->` | **Dependency** | Points to an entity ID that this entity *uses*. |
-| `<-` | **Caller** | Points to an entity ID that *uses* this entity. |
-
-#### Code Entities (JS, Python, Go, C#, etc.)
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `◇` | **Container** | A Class, Struct, Module, or Namespace. |
-| `~` | **Function** | A function, method, or procedure. |
-| `@` | **Variable** | A property, field, constant, or state variable. |
-
-#### Type System Definitions & References
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `{}` | **Interface/Struct** | Defines a data shape, contract, or complex object type. |
-| `☰` | **Enum** | Defines a set of named constant values. |
-| `=:` | **Type Alias** | Assigns a new name to an existing type. |
-| `#` | **Type Reference** | *References* an existing type in a signature or property. |
-
-#### Markup (HTML) & Style (CSS)
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `⛶` | **HTML Element** | Represents an element tag. Indentation denotes hierarchy. |
-| `¶` | **CSS Rule** | Represents a selector and its associated style block. |
-| `📐` | **Layout Intent** | CSS rule affects geometry (box model, flex, grid, position). |
-| `✍` | **Text Intent** | CSS rule affects typography (font, text styles). |
-| `💧` | **Appearance Intent**| CSS rule affects appearance (color, background, border, shadow). |
-
-#### Function & Method Qualifiers
-| Symbol | Meaning | Description |
-| :---: | :--- | :--- |
-| `+` / `-` | **Access** | Public (+) or Private (-) visibility. |
-| `...` | **Async** | The function is asynchronous (`await`able). |
-| `!` | **Throws** | The function can throw an exception or return an error. |
-| `o` | **Pure** | The function has no side effects. |
-
----
-
-
-## 7. Detailed Examples by Paradigm
-
-#### Object-Oriented Programming (OOP)
-```scn
-§ (10) models/user.ts
-  <- (11.1)
-  ◇ (10.1) User
-    + @ id: #(string)
-
-§ (11) services/auth.ts
-  -> (10.1)
-  <- (12.1)
-  ◇ (11.1) AuthService
-    - @ db: #(DB)
-    + ~ login(email: #, pass: #): #(10.1) ...!
-```
-**Shows:** Encapsulation (`- @ db`), dependency injection, and a public method with async/throws qualifiers.
-
-#### Functional Programming (FP)
-```scn
-§ (20) utils/validators.js
-  <- (22.1)
-  + ~ (20.1) isEmail(str: #): #(bool) o
-  + ~ (20.2) isSecure(pwd: #): #(bool) o
-
-§ (21) api/client.js
-  <- (22.1)
-  + ~ (21.1) postUser(data: #): #(Promise) ...!
-
-§ (22) pipelines/registration.js
-  -> (20.1), (20.2), (21.1)
-  + ~ (22.1) register(userData: #): #(Result) ...
-```
-**Shows:** Pure functions (`o`), composition (one function `(22.1)` depending on three others), and separation of pure/impure logic.
-
-#### Declarative UI (HTML/CSS)
-```scn
-§ (30) login.html
-  -> (31.0)
-  ⛶ (30.1) form [ id:#login-form ]
-    ⛶ (30.2) input [ class:.input ] -> (31.1)
-    ⛶ (30.3) button [ class:.btn ] -> (31.2)
-
-§ (31) login.css
-  ¶ (31.1) .input { 📐 ✍ }
-  ¶ (31.2) .btn { 📐 ✍ 💧 }
-```
-**Shows:** HTML hierarchy, `class` attributes linking directly to CSS rules, and CSS intent symbols summarizing the purpose of each rule.
-
----
-````
-
 ## File: src/cli.ts
-````typescript
+```typescript
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
 import { writeFile } from 'fs/promises';
@@ -338,6 +45,20 @@ interface CliOptions {
   version: boolean;
 }
 
+const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }> = {
+  '-o': { key: 'output', takesValue: true },
+  '--output': { key: 'output', takesValue: true },
+  '-p': { key: 'project', takesValue: true },
+  '--project': { key: 'project', takesValue: true },
+  '-c': { key: 'config', takesValue: true },
+  '--config': { key: 'config', takesValue: true },
+  '--watch': { key: 'watch', takesValue: false },
+  '-h': { key: 'help', takesValue: false },
+  '--help': { key: 'help', takesValue: false },
+  '-v': { key: 'version', takesValue: false },
+  '--version': { key: 'version', takesValue: false },
+};
+
 function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     include: [],
@@ -350,35 +71,16 @@ function parseArgs(args: string[]): CliOptions {
   for (let i = 0; i < cliArgs.length; i++) {
     const arg = cliArgs[i];
     if (!arg) continue;
-    if (arg.startsWith('-')) {
-      switch (arg) {
-        case '-o':
-        case '--output':
-          options.output = cliArgs[++i];
-          break;
-        case '-p':
-        case '--project':
-          options.project = cliArgs[++i];
-          break;
-        case '-c':
-        case '--config':
-          options.config = cliArgs[++i];
-          break;
-        case '--watch':
-          options.watch = true;
-          break;
-        case '-h':
-        case '--help':
-          options.help = true;
-          break;
-        case '-v':
-        case '--version':
-          options.version = true;
-          break;
-        default:
-          console.error(`Unknown option: ${arg}`);
-          process.exit(1);
+    const config = ARG_CONFIG[arg];
+    if (config) {
+      if (config.takesValue) {
+        (options as any)[config.key] = cliArgs[++i];
+      } else {
+        (options as any)[config.key] = true;
       }
+    } else if (arg.startsWith('-')) {
+      console.error(`Unknown option: ${arg}`);
+      process.exit(1);
     } else {
       options.include.push(arg);
     }
@@ -494,10 +196,10 @@ run().catch(e => {
     console.error(e);
     process.exit(1);
 });
-````
+```
 
 ## File: src/index.ts
-````typescript
+```typescript
 import { analyzeProject } from 'repograph';
 import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
 import { serializeGraph } from './serializer';
@@ -543,10 +245,10 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   const scnOutput = serializeGraph(graph, config.root);
   return scnOutput;
 };
-````
+```
 
 ## File: src/serializer.ts
-````typescript
+```typescript
 import type {
   RankedCodeGraph,
   CodeNode,
@@ -649,69 +351,44 @@ const getSourceContent = (filePath: string, rootDir?: string): string => {
   return sourceFileCache.get(fullPath) || '';
 };
 
-const isExported = (node: CodeNode, rootDir?: string): boolean => {
-  if (node.type === 'file') return false;
-  
-  const sourceContent = getSourceContent(node.filePath, rootDir);
-  if (!sourceContent) return false;
-  
-  // For class members (properties, methods), check if they're public by default
-  // In TypeScript, class members are public by default unless marked private/protected
-  if (node.type === 'property' || node.type === 'field' || node.type === 'method') {
-    // Check if it's explicitly marked as private or protected
-    const memberName = node.name.includes('.') ? node.name.split('.').pop() : node.name;
-    const privatePattern = new RegExp(`private\\s+${memberName}\\b`);
-    const protectedPattern = new RegExp(`protected\\s+${memberName}\\b`);
-    
-    if (privatePattern.test(sourceContent) || protectedPattern.test(sourceContent)) {
-      return false;
-    }
-    // If not explicitly private/protected, it's public
-    return true;
-  }
-  
-  // Check for export patterns
-  const exportPatterns = [
-    new RegExp(`export\\s+class\\s+${node.name}\\b`),
-    new RegExp(`export\\s+function\\s+${node.name}\\b`),
-    new RegExp(`export\\s+interface\\s+${node.name}\\b`),
-    new RegExp(`export\\s+namespace\\s+${node.name}\\b`),
-    new RegExp(`export\\s+const\\s+${node.name}\\b`),
-    new RegExp(`export\\s+let\\s+${node.name}\\b`),
-    new RegExp(`export\\s+var\\s+${node.name}\\b`),
-    new RegExp(`export\\s+default\\s+class\\s+${node.name}\\b`),
-    new RegExp(`export\\s+default\\s+function\\s+${node.name}\\b`),
-    new RegExp(`export\\s*{[^}]*\\b${node.name}\\b[^}]*}`),
-  ];
-  
-  return exportPatterns.some(pattern => pattern.test(sourceContent));
-};
+const getVisibilitySymbol = (node: CodeNode, rootDir?: string): '+' | '-' | undefined => {
+  if (node.visibility === 'public') return '+';
+  if (node.visibility === 'private' || node.visibility === 'protected') return '-';
+  if (node.type === 'file') return undefined;
 
-const getVisibilitySymbol = (visibility?: Visibility, node?: CodeNode, rootDir?: string): '+' | '-' | undefined => {
-  if (visibility === 'public') return '+';
-  if (visibility === 'private') return '-';
+  // Fallback to source-based inference if repograph doesn't provide visibility.
+  const source = getSourceContent(node.filePath, rootDir);
+  if (!source) return undefined;
+  
+  const line = (source.split('\n')[node.startLine - 1] || '').trim();
 
-  // In TypeScript, class members are public by default.
-  if (node && (node.type === 'method' || node.type === 'property' || node.type === 'field')) {
-      const source = getSourceContent(node.filePath, rootDir);
-      // A simple check to see if it is explicitly private/protected. If not, it's public.
-      const line = (source.split('\n')[node.startLine - 1] || '').trim();
-      if (!line.startsWith('private') && !line.startsWith('protected')) {
-        return '+';
-      }
+  // For class members, default is public unless explicitly private/protected.
+  if (['method', 'property', 'field'].includes(node.type)) {
+    return (line.startsWith('private') || line.startsWith('protected')) ? '-' : '+';
   }
 
-  // If repograph doesn't provide visibility info, infer it from source for other types
-  if (node && isExported(node, rootDir)) {
+  // For other top-level entities, check for an `export` keyword in the source.
+  const name = node.name.split('.').pop() || node.name;
+  const isExported = [
+    // `export const MyVar`, `export class MyClass`, `export default function ...`
+    `export\\s+(default\\s+)?(async\\s+)?(class|function|interface|enum|type|const|let|var|namespace)\\s+${name}\\b`,
+    // `export { MyVar }`
+    `export\\s*\\{[^}]*\\b${name}\\b`,
+  ].some(p => new RegExp(p).test(source));
+
+  if (isExported) {
     return '+';
   }
 
   return undefined;
 };
 
+const isComponentNode = (node: CodeNode): boolean =>
+  (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
+
 const getNodeSymbol = (node: CodeNode): ScnSymbol => {
   // Heuristic: Treat PascalCase functions as components (e.g., React)
-  if ((node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name)) {
+  if (isComponentNode(node)) {
     return '◇';
   }
   // Heuristic: Treat uppercase constants/variables as containers (module pattern)
@@ -722,17 +399,14 @@ const getNodeSymbol = (node: CodeNode): ScnSymbol => {
 };
 
 const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; others: QualifierSymbol[] } => {
-  const qualifiers: { access?: '+' | '-'; others: QualifierSymbol[] } = { others: [] };
-  const visibilitySymbol = getVisibilitySymbol(node.visibility, node, rootDir);
-  if (visibilitySymbol) qualifiers.access = visibilitySymbol;
-
+  const access = getVisibilitySymbol(node, rootDir);
+  
   const others: QualifierSymbol[] = [];
   if (node.isAsync) others.push('...');
   if (node.canThrow) others.push('!');
   if (node.isPure) others.push('o');
-  qualifiers.others = others;
   
-  return qualifiers;
+  return { access, others };
 };
 
 const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
@@ -781,9 +455,7 @@ const formatJsxAttributes = (snippet: string): string => {
 }
 
 const formatSignature = (node: CodeNode): string => {
-  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
-
-  if (isComponent && node.codeSnippet) {
+  if (isComponentNode(node) && node.codeSnippet) {
     const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
     if (propMatch?.[1]) {
       const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
@@ -837,9 +509,10 @@ const formatSignature = (node: CodeNode): string => {
     return node.codeSnippet;
   }
   
-  // For other container types, show their code snippet if available
-  if (node.codeSnippet && (node.type === 'class' || node.type === 'interface' || node.type === 'namespace')) {
-    return node.codeSnippet;
+  // For container types like class/interface/namespace, we don't show a signature.
+  // Their contents are represented by nested symbols.
+  if (node.type === 'class' || node.type === 'interface' || node.type === 'namespace') {
+    return '';
   }
   
   return '';
@@ -860,8 +533,7 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
   if (id) parts.push(id);
 
   // For functions, combine name and signature without space, unless it's a component
-  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
-  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor' || node.type === 'arrow_function') && !isComponent) {
+  if (['function', 'method', 'constructor', 'arrow_function'].includes(node.type) && !isComponentNode(node)) {
     const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
     parts.push(displayName + signature);
   } else {
@@ -1013,15 +685,18 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 
   return scnParts.join('\n\n');
 };
-````
+```
 
 ## File: test/ts/e2e/cli.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { setupTestProject, type TestProject } from '../../test.util';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { version } from '../../../package.json';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
 
 describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
   let project: TestProject | undefined;
@@ -1039,13 +714,16 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
       'b.ts': 'export const B = 2;',
     });
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'a.ts'], {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts'], {
       cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
     });
 
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exitCode;
+    await proc.exited;
+    const exitCode = proc.exitCode;
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain('§ (1) a.ts');
@@ -1057,7 +735,7 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
     project = await setupTestProject({ 'a.ts': 'export const A = 1;' });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'a.ts', '--output', outputPath], {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts', '--output', outputPath], {
       cwd: project.projectDir,
     });
     
@@ -1073,23 +751,24 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
       'tsconfig.test.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
     });
 
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'Comp.tsx', '-p', 'tsconfig.test.json'], {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'Comp.tsx', '-p', 'tsconfig.test.json'], {
       cwd: project.projectDir,
     });
     
     const stdout = await new Response(proc.stdout).text();
-    expect(await proc.exitCode).toBe(0);
-    expect(stdout).toContain('⛶ (1.2) div');
+    await proc.exited;
+    expect(proc.exitCode).toBe(0);
+    expect(stdout).toContain('◇ (1.1) C');
   });
 
   it('should display the correct version with --version', async () => {
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--version']);
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--version']);
     const stdout = await new Response(proc.stdout).text();
     expect(stdout.trim()).toBe(version);
   });
   
   it('should display the help screen with --help', async () => {
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--help']);
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--help']);
     const stdout = await new Response(proc.stdout).text();
     expect(stdout).toContain('Usage:');
     expect(stdout).toContain('--output <path>');
@@ -1098,25 +777,32 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
   it('should exit with a non-zero code on error', async () => {
     project = await setupTestProject({}); // Empty project
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'nonexistent.ts'], {
+    // Test with no input files specified - this should trigger the error
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], {
       cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
     });
 
     const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exitCode;
+    await proc.exited;
+    const exitCode = proc.exitCode;
     
     expect(exitCode).not.toBe(0);
-    expect(stderr).toContain('Error');
+    expect(stderr).toContain('Error: No input files specified');
   });
 });
-````
+```
 
 ## File: test/ts/e2e/config-file.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { setupTestProject, type TestProject } from '../../test.util';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
 
 describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
   let project: TestProject | undefined;
@@ -1135,10 +821,15 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `export default { include: ['a.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
     const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
     
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
     expect(stdout).toContain('§ (1) a.ts');
     expect(stdout).not.toContain('b.ts');
   });
@@ -1150,10 +841,15 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `export default { include: ['**/*.ts'], exclude: ['**/*.ignore.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
     const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
     
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
     expect(stdout).toContain('§ (1) a.ts');
     expect(stdout).not.toContain('b.ignore.ts');
   });
@@ -1165,10 +861,14 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `import {mkdirSync} from 'fs'; mkdirSync('dist'); export default { include: ['a.ts'], output: '${outputPath}' };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts'], { cwd: project.projectDir });
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
     await proc.exited;
 
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
     const outputContent = await readFile(join(project.projectDir, outputPath), 'utf-8');
     expect(outputContent).toContain('§ (1) a.ts');
   });
@@ -1184,12 +884,14 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
     });
     
     // Override both `include` and `output`
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', 'b.ts', '-o', cliOutputPath], {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'b.ts', '-o', cliOutputPath], {
       cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
     });
     await proc.exited;
 
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
 
     // Check that the CLI output path was used and has the correct content
     const cliOutputContent = await readFile(join(project.projectDir, cliOutputPath), 'utf-8');
@@ -1206,21 +908,29 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'config/my.config.js': `export default { include: ['a.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', 'src/cli.ts', '-c', 'config/my.config.js'], { cwd: project.projectDir });
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '-c', 'config/my.config.js'], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
     const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
     
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
     expect(stdout).toContain('§ (1) a.ts');
   });
 });
-````
+```
 
 ## File: test/ts/e2e/filesystem.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { setupTestProject, type TestProject } from '../../test.util';
 import { readFile, writeFile, rm } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
 
 // Helper to wait for a file to contain specific content
 async function waitForFileContent(filePath: string, expectedContent: string, timeout = 5000): Promise<void> {
@@ -1260,7 +970,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
 
@@ -1268,7 +978,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     await waitForFileContent(outputPath, 'A = 1');
     const initialContent = await readFile(outputPath, 'utf-8');
     expect(initialContent).toContain('§ (1) a.ts');
-    expect(initialContent).toContain('@ (1.1) A = 1');
+    expect(initialContent).toContain('◇ (1.1) A = 1');
     
     // 2. Modify the file
     await writeFile(join(project.projectDir, 'a.ts'), 'export const A = 42;');
@@ -1276,7 +986,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     // 3. Wait for re-generation
     await waitForFileContent(outputPath, 'A = 42');
     const updatedContent = await readFile(outputPath, 'utf-8');
-    expect(updatedContent).toContain('@ (1.1) A = 42');
+    expect(updatedContent).toContain('◇ (1.1) A = 42');
   });
 
   it('--watch: should re-generate when a new file matching the glob is added', async () => {
@@ -1285,7 +995,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
     
@@ -1310,7 +1020,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     const outputPath = join(project.projectDir, 'output.scn');
     const fileToDelete = join(project.projectDir, 'b.ts');
 
-    watcherProc = Bun.spawn(['bun', 'run', 'src/cli.ts', '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
 
@@ -1341,25 +1051,25 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
 
   it('should handle file paths with spaces correctly', async () => {
      project = await setupTestProject({
-      '"my component".ts': 'export const MyComponent = 1;',
+      'my component.ts': 'export const MyComponent = 1;',
     });
-    const outputPath = join(project.projectDir, '"output with spaces".scn');
+    const outputPath = join(project.projectDir, 'output with spaces.scn');
     
     const proc = Bun.spawn(
-      ['bun', 'run', 'src/cli.ts', '"my component".ts', '-o', '"output with spaces".scn'],
+      ['bun', 'run', CLI_PATH, 'my component.ts', '-o', 'output with spaces.scn'],
       { cwd: project.projectDir }
     );
     await proc.exited;
 
-    expect(await proc.exitCode).toBe(0);
+    expect(proc.exitCode).toBe(0);
     const outputContent = await readFile(outputPath, 'utf-8');
-    expect(outputContent).toContain('§ (1) "\\"my component\\".ts"');
+    expect(outputContent).toContain('§ (1) "my component.ts"');
   });
 });
-````
+```
 
 ## File: test/ts/integration/css-parsing.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -1480,10 +1190,10 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
     expect(cssScn!).toContain('  ¶ (1.1) #main-container { 💧 }\n    <- (2.2)');
   });
 });
-````
+```
 
 ## File: test/ts/integration/dependency-graph.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -1607,10 +1317,10 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
     expect(mainScn).toContain('  + ~ (1.1) run()\n    -> (2.1), (2.2)');
   });
 });
-````
+```
 
 ## File: test/ts/integration/programmatic-api.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { serializeGraph } from '../../../src/serializer';
@@ -1676,8 +1386,8 @@ describe('SCN Generation: 2. Programmatic API', () => {
       
       // Correct parsing of JSX depends on tsconfig.json
       expect(scn).toContain('§ (1) Button.tsx');
-      expect(scn).toContain('+ ◇ (1.1) Button()');
-      expect(scn).toContain('⛶ (1.2) button');
+      expect(scn).toContain('+ ◇ (1.2) Button');
+      expect(scn).toContain('⛶ (1.3) button');
     });
 
     it('should return an empty string for globs that match no files', async () => {
@@ -1720,7 +1430,13 @@ describe('SCN Generation: 2. Programmatic API', () => {
             { fromId: 'func-a', toId: 'func-b', type: 'references' },
         ];
 
-        const graph: RankedCodeGraph = { nodes, edges: edges as any };
+        const ranks = new Map<string, number>([
+            [fileNodeA.id, 0],
+            [funcNodeA.id, 0],
+            [fileNodeB.id, 0],
+            [funcNodeB.id, 0],
+        ]);
+        const graph: RankedCodeGraph = { nodes, edges: edges as any, ranks };
 
         const scnOutput = serializeGraph(graph);
         
@@ -1733,10 +1449,10 @@ describe('SCN Generation: 2. Programmatic API', () => {
     });
   });
 });
-````
+```
 
 ## File: test/ts/unit/code-entities.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -1849,10 +1565,10 @@ describe('SCN Generation: 1.3 Code Entities', () => {
     expect(scn).toContain('  + ~ (1.1) myFunc()');
   });
 });
-````
+```
 
 ## File: test/ts/unit/general-structural.test.ts
-````typescript
+```typescript
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -1911,10 +1627,10 @@ describe('SCN Generation: 1.1 General & Structural', () => {
     expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
   });
 });
-````
+```
 
 ## File: test/ts/unit/jsx.test.ts new
-````
+```
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -2028,10 +1744,10 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX)', () => {
     expect(mainScn).toContain('-> (2.2)'); // uses func via utils.*
   });
 });
-````
+```
 
 ## File: test/ts/unit/qualifiers.test.ts new
-````
+```
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -2108,10 +1824,10 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     expect(scn).toContain('+ ~ (1.1) add(a: #, b: #): #number o');
   });
 });
-````
+```
 
 ## File: test/ts/unit/type-system.test.ts new
-````
+```
 import { describe, it, expect, afterEach } from 'bun:test';
 import { generateScn } from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
@@ -2159,10 +1875,10 @@ describe('SCN Generation: 1.4 Type System Symbols', () => {
     expect(scn).toContain('~ (1.2) getUser(): #Promise<User>');
   });
 });
-````
+```
 
 ## File: test/test.util.ts
-````typescript
+```typescript
 import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
@@ -2187,10 +1903,10 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
 
   return { projectDir, cleanup };
 }
-````
+```
 
 ## File: package.json
-````json
+```json
 {
   "version": "1.0.0",
   "name": "scn-ts",
@@ -2207,10 +1923,10 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
     "typescript": "^5"
   }
 }
-````
+```
 
 ## File: tsconfig.json
-````json
+```json
 {
   "compilerOptions": {
     // Environment setup & latest features
@@ -2248,4 +1964,4 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
   "include": ["src", "test"],
   "exclude": ["node_modules", "dist"]
 }
-````
+```

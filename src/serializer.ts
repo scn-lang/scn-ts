@@ -100,69 +100,44 @@ const getSourceContent = (filePath: string, rootDir?: string): string => {
   return sourceFileCache.get(fullPath) || '';
 };
 
-const isExported = (node: CodeNode, rootDir?: string): boolean => {
-  if (node.type === 'file') return false;
-  
-  const sourceContent = getSourceContent(node.filePath, rootDir);
-  if (!sourceContent) return false;
-  
-  // For class members (properties, methods), check if they're public by default
-  // In TypeScript, class members are public by default unless marked private/protected
-  if (node.type === 'property' || node.type === 'field' || node.type === 'method') {
-    // Check if it's explicitly marked as private or protected
-    const memberName = node.name.includes('.') ? node.name.split('.').pop() : node.name;
-    const privatePattern = new RegExp(`private\\s+${memberName}\\b`);
-    const protectedPattern = new RegExp(`protected\\s+${memberName}\\b`);
-    
-    if (privatePattern.test(sourceContent) || protectedPattern.test(sourceContent)) {
-      return false;
-    }
-    // If not explicitly private/protected, it's public
-    return true;
-  }
-  
-  // Check for export patterns
-  const exportPatterns = [
-    new RegExp(`export\\s+class\\s+${node.name}\\b`),
-    new RegExp(`export\\s+function\\s+${node.name}\\b`),
-    new RegExp(`export\\s+interface\\s+${node.name}\\b`),
-    new RegExp(`export\\s+namespace\\s+${node.name}\\b`),
-    new RegExp(`export\\s+const\\s+${node.name}\\b`),
-    new RegExp(`export\\s+let\\s+${node.name}\\b`),
-    new RegExp(`export\\s+var\\s+${node.name}\\b`),
-    new RegExp(`export\\s+default\\s+class\\s+${node.name}\\b`),
-    new RegExp(`export\\s+default\\s+function\\s+${node.name}\\b`),
-    new RegExp(`export\\s*{[^}]*\\b${node.name}\\b[^}]*}`),
-  ];
-  
-  return exportPatterns.some(pattern => pattern.test(sourceContent));
-};
+const getVisibilitySymbol = (node: CodeNode, rootDir?: string): '+' | '-' | undefined => {
+  if (node.visibility === 'public') return '+';
+  if (node.visibility === 'private' || node.visibility === 'protected') return '-';
+  if (node.type === 'file') return undefined;
 
-const getVisibilitySymbol = (visibility?: Visibility, node?: CodeNode, rootDir?: string): '+' | '-' | undefined => {
-  if (visibility === 'public') return '+';
-  if (visibility === 'private') return '-';
+  // Fallback to source-based inference if repograph doesn't provide visibility.
+  const source = getSourceContent(node.filePath, rootDir);
+  if (!source) return undefined;
+  
+  const line = (source.split('\n')[node.startLine - 1] || '').trim();
 
-  // In TypeScript, class members are public by default.
-  if (node && (node.type === 'method' || node.type === 'property' || node.type === 'field')) {
-      const source = getSourceContent(node.filePath, rootDir);
-      // A simple check to see if it is explicitly private/protected. If not, it's public.
-      const line = (source.split('\n')[node.startLine - 1] || '').trim();
-      if (!line.startsWith('private') && !line.startsWith('protected')) {
-        return '+';
-      }
+  // For class members, default is public unless explicitly private/protected.
+  if (['method', 'property', 'field'].includes(node.type)) {
+    return (line.startsWith('private') || line.startsWith('protected')) ? '-' : '+';
   }
 
-  // If repograph doesn't provide visibility info, infer it from source for other types
-  if (node && isExported(node, rootDir)) {
+  // For other top-level entities, check for an `export` keyword in the source.
+  const name = node.name.split('.').pop() || node.name;
+  const isExported = [
+    // `export const MyVar`, `export class MyClass`, `export default function ...`
+    `export\\s+(default\\s+)?(async\\s+)?(class|function|interface|enum|type|const|let|var|namespace)\\s+${name}\\b`,
+    // `export { MyVar }`
+    `export\\s*\\{[^}]*\\b${name}\\b`,
+  ].some(p => new RegExp(p).test(source));
+
+  if (isExported) {
     return '+';
   }
 
   return undefined;
 };
 
+const isComponentNode = (node: CodeNode): boolean =>
+  (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
+
 const getNodeSymbol = (node: CodeNode): ScnSymbol => {
   // Heuristic: Treat PascalCase functions as components (e.g., React)
-  if ((node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name)) {
+  if (isComponentNode(node)) {
     return '◇';
   }
   // Heuristic: Treat uppercase constants/variables as containers (module pattern)
@@ -173,17 +148,14 @@ const getNodeSymbol = (node: CodeNode): ScnSymbol => {
 };
 
 const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; others: QualifierSymbol[] } => {
-  const qualifiers: { access?: '+' | '-'; others: QualifierSymbol[] } = { others: [] };
-  const visibilitySymbol = getVisibilitySymbol(node.visibility, node, rootDir);
-  if (visibilitySymbol) qualifiers.access = visibilitySymbol;
-
+  const access = getVisibilitySymbol(node, rootDir);
+  
   const others: QualifierSymbol[] = [];
   if (node.isAsync) others.push('...');
   if (node.canThrow) others.push('!');
   if (node.isPure) others.push('o');
-  qualifiers.others = others;
   
-  return qualifiers;
+  return { access, others };
 };
 
 const formatCssIntents = (intents: readonly CssIntent[] = []): string => {
@@ -232,9 +204,7 @@ const formatJsxAttributes = (snippet: string): string => {
 }
 
 const formatSignature = (node: CodeNode): string => {
-  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
-
-  if (isComponent && node.codeSnippet) {
+  if (isComponentNode(node) && node.codeSnippet) {
     const propMatch = node.codeSnippet.match(/\(\s*\{([^}]+)\}/);
     if (propMatch?.[1]) {
       const props = propMatch[1].split(',').map(p => p.trim().split(/[:=]/)[0]?.trim()).filter(Boolean);
@@ -288,9 +258,10 @@ const formatSignature = (node: CodeNode): string => {
     return node.codeSnippet;
   }
   
-  // For other container types, show their code snippet if available
-  if (node.codeSnippet && (node.type === 'class' || node.type === 'interface' || node.type === 'namespace')) {
-    return node.codeSnippet;
+  // For container types like class/interface/namespace, we don't show a signature.
+  // Their contents are represented by nested symbols.
+  if (node.type === 'class' || node.type === 'interface' || node.type === 'namespace') {
+    return '';
   }
   
   return '';
@@ -311,8 +282,7 @@ const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdMana
   if (id) parts.push(id);
 
   // For functions, combine name and signature without space, unless it's a component
-  const isComponent = (node.type === 'function' || node.type === 'arrow_function') && /^[A-Z]/.test(node.name);
-  if ((node.type === 'function' || node.type === 'method' || node.type === 'constructor' || node.type === 'arrow_function') && !isComponent) {
+  if (['function', 'method', 'constructor', 'arrow_function'].includes(node.type) && !isComponentNode(node)) {
     const displayName = node.name.includes('.') ? node.name.split('.').pop() || node.name : node.name;
     parts.push(displayName + signature);
   } else {

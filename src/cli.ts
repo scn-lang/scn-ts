@@ -14,6 +14,20 @@ interface CliOptions {
   version: boolean;
 }
 
+const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }> = {
+  '-o': { key: 'output', takesValue: true },
+  '--output': { key: 'output', takesValue: true },
+  '-p': { key: 'project', takesValue: true },
+  '--project': { key: 'project', takesValue: true },
+  '-c': { key: 'config', takesValue: true },
+  '--config': { key: 'config', takesValue: true },
+  '--watch': { key: 'watch', takesValue: false },
+  '-h': { key: 'help', takesValue: false },
+  '--help': { key: 'help', takesValue: false },
+  '-v': { key: 'version', takesValue: false },
+  '--version': { key: 'version', takesValue: false },
+};
+
 function parseArgs(args: string[]): CliOptions {
   const options: CliOptions = {
     include: [],
@@ -26,35 +40,16 @@ function parseArgs(args: string[]): CliOptions {
   for (let i = 0; i < cliArgs.length; i++) {
     const arg = cliArgs[i];
     if (!arg) continue;
-    if (arg.startsWith('-')) {
-      switch (arg) {
-        case '-o':
-        case '--output':
-          options.output = cliArgs[++i];
-          break;
-        case '-p':
-        case '--project':
-          options.project = cliArgs[++i];
-          break;
-        case '-c':
-        case '--config':
-          options.config = cliArgs[++i];
-          break;
-        case '--watch':
-          options.watch = true;
-          break;
-        case '-h':
-        case '--help':
-          options.help = true;
-          break;
-        case '-v':
-        case '--version':
-          options.version = true;
-          break;
-        default:
-          console.error(`Unknown option: ${arg}`);
-          process.exit(1);
+    const config = ARG_CONFIG[arg];
+    if (config) {
+      if (config.takesValue) {
+        (options as any)[config.key] = cliArgs[++i];
+      } else {
+        (options as any)[config.key] = true;
       }
+    } else if (arg.startsWith('-')) {
+      console.error(`Unknown option: ${arg}`);
+      process.exit(1);
     } else {
       options.include.push(arg);
     }
