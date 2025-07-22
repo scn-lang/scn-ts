@@ -1,3 +1,21 @@
+if I uncomment this in tsconfig.json of scn-ts
+
+   // "baseUrl": ".",
+    // "paths": {
+    //   "repograph": ["repograph/src/index.ts"]
+    // },
+
+then I run `bun test test/ts/integration/ test/ts/unit/` it result 0 fail test
+
+but when I comment that repograph also updating `bun install repograph` then ran the same test
+
+it result 41 fail 6 pass.
+
+so please, you have permission to both edit scn-ts and repograph
+
+
+===
+
 make the codebase radically DRY less code les LOC without causing fail bun test
 
 ===

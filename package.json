@@ -1,16 +1,19 @@
 {
-  "version": "1.0.0",
   "name": "scn-ts",
+  "version": "1.0.0",
   "module": "src/index.ts",
-  "bin": {
-    "scn-ts": "src/cli.ts"
-  },
-  "type": "module",
-  "private": true,
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "bin": {
+    "scn-ts": "src/cli.ts"
+  },
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "repograph": "0.1.12"
   }
 }
