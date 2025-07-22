@@ -25,16 +25,21 @@
   "include": [
     "package.json",
     "tsconfig.json",
-    "src",
-    "docs/scn.readme.md",
-    "test",
+ //   "src",
+ //   "docs/scn.readme.md",
+ //   "test",
+"repograph/src/pipeline/analyze.ts",
+  "repograph/src/pipeline/analyzer.worker.ts",
+  "repograph/src/types.ts",
+  "repograph/src/pipeline/rank.ts",
+  "src/cli.ts",
+  "test/ts/unit/jsx.test.ts"
   ],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
     "customPatterns": [
-      "repograph/src/utils",
-      "repograph/src/composer.ts"
+      
     ]
   },
   "security": {

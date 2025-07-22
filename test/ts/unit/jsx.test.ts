@@ -60,8 +60,8 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
     expect(h1Index).toBeGreaterThan(-1);
     expect(h1Index).toBe(mainIndex + 1);
     
-    const mainIndentation = lines[mainIndex].match(/^\s*/)?.[0].length ?? 0;
-    const h1Indentation = lines[h1Index].match(/^\s*/)?.[0].length ?? 0;
+    const mainIndentation = lines[mainIndex]!.match(/^\s*/)?.[0].length ?? 0;
+    const h1Indentation = lines[h1Index]!.match(/^\s*/)?.[0].length ?? 0;
     
     expect(h1Indentation).toBeGreaterThan(mainIndentation);
   });

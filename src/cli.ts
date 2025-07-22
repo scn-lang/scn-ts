@@ -46,6 +46,10 @@ function parseArgs(args: string[]): CliOptions {
     if (config) {
       if (config.takesValue) {
         const value = cliArgs[++i];
+        if (value === undefined) {
+          console.error(`Error: Missing value for argument ${arg}`);
+          process.exit(1);
+        }
         if (config.key === 'maxWorkers') {
           const numValue = parseInt(value, 10);
           if (isNaN(numValue) || numValue < 1) {
