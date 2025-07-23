@@ -1,3 +1,6 @@
+test files should not directly import from repograph... should only import from scn-ts src/index to proof that the scn-ts has comprehensive public API and ready for production. also should expose all repograph api trough scn-ts src/index
+
+===
 
 prepare this project for npm publish ready to https://www.npmjs.com/package/scn-ts .. also use tsup
 

@@ -26,9 +26,11 @@
     "package.json",
     "tsconfig.json",
     "src",
-   "docs/scn.readme.md",
+   // "docs/scn.readme.md",
    "test",
-   "repograph/src"
+   // "repograph/src"
+   //
+   "repograph/src/index.ts"
 
   ],
   "ignore": {

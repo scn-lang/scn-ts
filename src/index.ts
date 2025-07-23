@@ -51,3 +51,46 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   const scnOutput = serializeGraph(graph, config.root);
   return scnOutput;
 };
+
+// Low-level API for composition
+export { serializeGraph };
+
+// Re-export from repograph for advanced users
+export {
+  // High-Level API
+  analyzeProject,
+  generateMap,
+  // Low-Level API
+  createMapGenerator,
+  // Pipeline component factories
+  createDefaultDiscoverer,
+  createTreeSitterAnalyzer,
+  createPageRanker,
+  createGitRanker,
+  createMarkdownRenderer,
+  // Logger utilities
+  logger,
+} from 'repograph';
+
+// Re-export types from repograph
+export type {
+  // Core types
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeNodeVisibility,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  RendererOptions,
+  FileDiscoverer,
+  CssIntent,
+  Analyzer,
+  Ranker,
+  Renderer,
+  // Logger types
+  Logger,
+  LogLevel,
+} from 'repograph';

@@ -1,8 +1,12 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { serializeGraph } from '../../../src/serializer';
+import {
+  generateScn,
+  serializeGraph,
+  type RankedCodeGraph,
+  type CodeNode,
+  type CodeEdge as RepographEdge,
+} from '../../../src/index';
 import { setupTestProject, type TestProject } from '../../test.util';
-import type { RankedCodeGraph, CodeNode, CodeEdge as RepographEdge } from 'repograph';
 import { rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
