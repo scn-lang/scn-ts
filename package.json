@@ -1,6 +1,6 @@
 {
   "name": "scn-ts",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Generate Symbolic Context Notation (SCN) maps from your TypeScript/JavaScript codebase.",
   "author": "anton",
   "license": "MIT",
