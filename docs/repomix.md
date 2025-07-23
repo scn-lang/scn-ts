@@ -3,44 +3,30 @@
 repograph/
   src/
     index.ts
+  README.md
 src/
   cli.ts
   index.ts
   serializer.ts
-test/
-  ts/
-    e2e/
-      cli.test.ts
-      config-file.test.ts
-      filesystem.test.ts
-    integration/
-      css-parsing.test.ts
-      dependency-graph.test.ts
-      programmatic-api.test.ts
-    unit/
-      code-entities.test.ts
-      general-structural.test.ts
-      jsx.test.ts
-      qualifiers.test.ts
-      type-system.test.ts
-  test.util.ts
 package.json
 tsconfig.json
+tsup.config.ts
 ```
 
 # Files
 
 ## File: repograph/src/index.ts
-```typescript
+````typescript
 #!/usr/bin/env bun
 
 import { logger } from './utils/logger.util';
 import { RepoGraphError } from './utils/error.util';
 // High-Level API for simple use cases
 import { generateMap as executeGenerateMap } from './high-level';
-import type { RepoGraphOptions as IRepoGraphOptions } from './types';
+import { type RepoGraphOptions as IRepoGraphOptions } from './types';
 
-export { generateMap, analyzeProject } from './high-level';
+export { analyzeProject, generateMap } from './high-level';
+export { initializeParser } from './tree-sitter/languages';
 
 // Low-Level API for composition and advanced use cases
 export { createMapGenerator } from './composer';
@@ -53,10 +39,12 @@ export { createMarkdownRenderer } from './pipeline/render';
 
 // Logger utilities
 export { logger } from './utils/logger.util';
-export type { Logger, LogLevel } from './utils/logger.util';
+export type { LogLevel, Logger } from './utils/logger.util';
+export type { ParserInitializationOptions } from './tree-sitter/languages';
 
 // Core types for building custom components
 export type {
+  Analyzer,
   FileContent,
   CodeNode,
   CodeNodeType,
@@ -66,12 +54,11 @@ export type {
   RankedCodeGraph,
   RepoGraphMap,
   RepoGraphOptions,
-  RendererOptions,
-  FileDiscoverer,
   CssIntent,
-  Analyzer,
   Ranker,
   Renderer,
+  RendererOptions,
+  FileDiscoverer,
 } from './types';
 
 // This section runs only when the script is executed directly from the CLI
@@ -85,6 +72,35 @@ const isRunningDirectly = () => {
   return runningFile === currentFile;
 };
 
+const copyWasmFiles = async (destination: string) => {
+  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  if (isBrowser) {
+    logger.error('File system operations are not available in the browser.');
+    return;
+  }
+
+  try {
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
+
+    // Source is relative to the running script (dist/index.js)
+    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
+    
+    await fs.mkdir(destination, { recursive: true });
+
+    const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
+    for (const file of wasmFiles) {
+      const srcPath = path.join(sourceDir, file);
+      const destPath = path.join(destination, file);
+      await fs.copyFile(srcPath, destPath);
+      logger.info(`Copied ${file} to ${path.relative(process.cwd(), destPath)}`);
+    }
+    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied successfully.`);
+  } catch (err) {
+    logger.error('Error copying WASM files.', err);
+  }
+};
+
 if (isRunningDirectly()) {
   (async () => {
     const args = process.argv.slice(2);
@@ -92,6 +108,13 @@ if (isRunningDirectly()) {
     if (args.includes('--help') || args.includes('-h')) {
       console.log(`
 Usage: repograph [root] [options]
+       repograph copy-wasm [destination]
+
+Commands:
+  [root]                   Analyze a repository at the given root path. This is the default command.
+  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a specified directory
+                           for browser-based usage.
+                           (default destination: "./public/wasm")
 
 Arguments:
   root                     The root directory of the repository to analyze. Defaults to the current working directory.
@@ -120,6 +143,13 @@ Output Formatting:
   --no-symbol-snippets     Hide code snippets for symbols.
   --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
     `);
+      process.exit(0);
+    }
+
+    if (args[0] === 'copy-wasm') {
+      const destDir = args[1] || './public/wasm';
+      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
+      await copyWasmFiles(destDir);
       process.exit(0);
     }
 
@@ -263,10 +293,420 @@ Output Formatting:
     process.exit(1);
   });
 }
+````
+
+## File: repograph/README.md
+````markdown
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/relaycoder/repograph/main/assets/logo.svg" alt="RepoGraph Logo" width="150"/>
+
+# RepoGraph
+
+### Your Codebase, Visualized & Understood.
+
+**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository, in any environment.**
+
+[![NPM Version](https://img.shields.io/npm/v/repograph?style=for-the-badge&color=CB3837)](https://www.npmjs.com/package/repograph)
+[![License](https://img.shields.io/npm/l/repograph?style=for-the-badge&color=blue)](./LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/relaycoder/repograph/ci.yml?branch=main&style=for-the-badge)](https://github.com/relaycoder/repograph/actions)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](http://makeapullrequest.com)
+
+</div>
+
+---
+
+Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful **isomorphic** tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
+
+Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence—**both in your terminal and in the browser**.
+
+## ✨ Key Features & Benefits
+
+| Feature                               | Benefit                                                                                                                                                    |
+| :------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **🧠 Multi-Language Semantic Analysis** | Uses **Tree-sitter** to parse your code with deep understanding, identifying not just files, but classes, functions, methods, and their relationships.     |
+| **⚡ Parallel Processing**              | Leverages **worker threads** to analyze files in parallel, dramatically speeding up analysis for large codebases with configurable worker pools.        |
+| **⭐ Intelligent Ranking Algorithms**   | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters.       |
+| **🎯 Rich Symbol Qualifiers**           | Extract deep metadata including visibility (`public`/`private`), `async`/`static` status, purity, exception handling, parameter types, and return types. |
+| **🌐 Browser & Node.js Support**       | Run analysis anywhere. Use the powerful CLI in your terminal or integrate the library directly into your web-based IDE or analysis tools.                 |
+| **🎨 Comprehensive Markdown Reports**  | Generates a `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns.                              |
+| **🧩 Composable Pipeline API**         | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**.                         |
+| **⚙️ Highly Configurable CLI**          | Fine-tune your analysis and output with a rich set of command-line flags to include/ignore files, customize the report, and more.                            |
+
+## 🚀 Why Use RepoGraph?
+
+-   **Accelerate Onboarding:** Give new developers a guided tour of the codebase, highlighting the most important entry points and modules.
+-   **Master Code Navigation:** Understand how components are interconnected, making it easier to trace logic and predict the impact of changes.
+-   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
+-   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
+-   **Build In-Browser Tools:** Integrate RepoGraph into your web applications to create live code explorers, visualizers, or educational platforms without a server-side component.
+-   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
+
+## 📸 Gallery: Example Output
+
+Imagine running `repograph` on a small project. Here's a glimpse of the beautiful and insightful Markdown file it produces.
+
+---
+
+# RepoGraph
+
+_Generated by RepoGraph on 2025-07-20T06:21:00.000Z_
+
+## 🚀 Project Overview
+
+This repository contains 25 nodes (5 files).
+
+### Module Dependency Graph
+
+```mermaid
+graph TD
+    src/index.ts["index.ts"] --> src/composer.ts["composer.ts"]
+    src/index.ts["index.ts"] --> src/high-level.ts["high-level.ts"]
+    src/high-level.ts["high-level.ts"] --> src/composer.ts["composer.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/discover.ts["discover.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/analyze.ts["analyze.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/rank.ts["rank.ts"]
+    src/composer.ts["composer.ts"] --> src/pipeline/render.ts["render.ts"]
 ```
 
-## File: src/cli.ts
+### Top 5 Most Important Files
+
+| Rank | File                      | Description                       |
+| :--- | :------------------------ | :-------------------------------- |
+| 1    | `src/pipeline/analyze.ts` | Key module in the architecture.   |
+| 2    | `src/index.ts`            | Key module in the architecture.   |
+| 3    | `src/composer.ts`         | Key module in the architecture.   |
+| 4    | `src/types.ts`            | Key module in the architecture.   |
+| 5    | `src/pipeline/render.ts`  | Key module in the architecture.   |
+
+---
+
+## 📂 File & Symbol Breakdown
+
+### [`src/pipeline/analyze.ts`](./src/pipeline/analyze.ts)
+
+-   **`function createTreeSitterAnalyzer`** - _L257_
+    ```typescript
+    export const createTreeSitterAnalyzer = (): Analyzer => {
+    ```
+-   **`function processFileDefinitions`** (throws) - _L291_
+    ```typescript
+    function processFileDefinitions(
+    ```
+-   **`function findEnclosingSymbolId`** (calls `parent`) - _L461_
+    ```typescript
+    function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
+    ```
+
+---
+
+## 🔬 Rich Semantic Analysis
+
+RepoGraph extracts deep semantic details from your code, making it perfect for integration with advanced analysis and AI tools.
+
+### Symbol Qualifiers Extracted
+
+-   **Visibility:** `public`, `private`, `protected`, `internal`, `default`
+-   **Modifiers:** `async`, `static`
+-   **Behavior:** `canThrow` (detects exceptions), `isPure` (detects side-effect-free functions)
+-   **Type System:** Parameter names and types, return types
+
+### Example: TypeScript Analysis
+
+Given this code:
+
 ```typescript
+export class UserService {
+  public async getUser(id: string): Promise<User> {
+    if (!id) throw new Error('ID is required');
+    return await this.repository.findById(id);
+  }
+
+  private static validateEmail(email: string): boolean {
+    return email.includes('@');
+  }
+}
+```
+
+RepoGraph produces a `CodeNode` with this structured metadata:
+
+-   `getUser`: `visibility: 'public'`, `isAsync: true`, `canThrow: true`, `returnType: 'Promise<User>'`, `parameters: [{ name: 'id', type: 'string' }]`
+-   `validateEmail`: `visibility: 'private'`, `isStatic: true`, `returnType: 'boolean'`, `parameters: [{ name: 'email', type: 'string' }]`
+
+This rich metadata enables sophisticated integrations with tools like **`scn-ts`** for enhanced code visualization and AI-powered analysis.
+
+## 📦 Installation
+
+```bash
+# Using npm
+npm install repograph
+
+# Using yarn
+yarn add repograph
+
+# Using pnpm
+pnpm add repograph
+```
+To use the CLI globally, install with a `-g` flag.
+
+## 🛠️ Usage
+
+### Command-Line Interface (CLI)
+
+The CLI is the quickest way to get a codemap. Simply navigate to your project's root directory and run the command.
+
+**Basic Usage**
+
+```bash
+# Analyze the current directory and create repograph.md
+repograph
+```
+
+**Advanced Usage**
+
+```bash
+# Analyze a specific project, use the git-changes ranker, and customize the output
+repograph ./my-cool-project \
+  --output docs/CodeMap.md \
+  --ranking-strategy git-changes \
+  --ignore "**/__tests__/**" \
+  --max-workers 4 \
+  --no-mermaid
+```
+
+#### All CLI Options
+
+| Command / Argument              | Alias | Description                                                                   | Default                     |
+| :------------------------------ | :---- | :---------------------------------------------------------------------------- | :-------------------------- |
+| **Commands**                    |       |                                                                               |                             |
+| `[root]`                        |       | Analyze a repository at the given root path. This is the default command.     | `.`                         |
+| `copy-wasm [destination]`       |       | Copy Tree-sitter WASM files to a directory for browser usage.                   | `./public/wasm`             |
+| **Arguments & Options**         |       |                                                                               |                             |
+| `--output <path>`               |       | Path to the output Markdown file.                                             | `repograph.md`              |
+| `--include <pattern>`           |       | Glob pattern for files to include. Can be specified multiple times.             | `**/*`                      |
+| `--ignore <pattern>`            |       | Glob pattern for files to ignore. Can be specified multiple times.              |                             |
+| `--no-gitignore`                |       | Do not respect `.gitignore` files.                                              | `false`                     |
+| `--ranking-strategy <name>`     |       | Ranking strategy: `pagerank` or `git-changes`.                                  | `pagerank`                  |
+| `--max-workers <num>`           |       | Number of parallel workers for analysis. Set to 1 for single-threaded.          | `1`                         |
+| `--log-level <level>`           |       | Logging level: `silent`, `error`, `warn`, `info`, `debug`.                      | `info`                      |
+| `--help`                        | `-h`  | Display the help message.                                                     |                             |
+| `--version`                     | `-v`  | Display the version number.                                                     |                             |
+| **Output Formatting**           |       |                                                                               |                             |
+| `--no-header`                   |       | Do not include the main "RepoGraph" header.                                     | `false`                     |
+| `--no-overview`                 |       | Do not include the project overview section.                                    | `false`                     |
+| `--no-mermaid`                  |       | Do not include the Mermaid dependency graph.                                    | `false`                     |
+| `--no-file-list`                |       | Do not include the list of top-ranked files.                                    | `false`                     |
+| `--no-symbol-details`           |       | Do not include the detailed file and symbol breakdown.                          | `false`                     |
+| `--top-file-count <num>`        |       | Number of files in the top list.                                                | `10`                        |
+| `--file-section-separator <str>`|       | Custom separator for file sections.                                             | `---`                       |
+| `--no-symbol-relations`         |       | Hide symbol relationship details (e.g., `calls`).                               | `false`                     |
+| `--no-symbol-line-numbers`      |       | Hide line numbers for symbols.                                                  | `false`                     |
+| `--no-symbol-snippets`          |       | Hide code snippets for symbols.                                                 | `false`                     |
+| `--max-relations-to-show <num>` |       | Max number of 'calls' relations to show per symbol.                             | `3`                         |
+
+### 📚 Programmatic API
+
+For ultimate flexibility, use the RepoGraph programmatic API. Integrate it into your own tools, build custom pipelines, and invent new ways to analyze code.
+
+#### High-Level API (`analyzeProject`)
+
+This is the main entry point for both Node.js and browser environments.
+
+**Node.js Usage (File Discovery)**
+
+```typescript
+// my-node-script.ts
+import { analyzeProject, createMarkdownRenderer } from 'repograph';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+
+// Analyze files on disk
+const rankedGraph = await analyzeProject({
+  root: path.resolve('./path/to/your/project'),
+  rankingStrategy: 'git-changes',
+  maxWorkers: 4,
+});
+
+// Render the output
+const renderer = createMarkdownRenderer();
+const markdown = renderer(rankedGraph);
+
+await fs.writeFile('report.md', markdown);
+console.log('✅ Report generated!');
+```
+
+**Browser Usage (In-Memory Files)**
+
+To use RepoGraph in the browser, you must provide the file content directly.
+
+1.  **Copy WASM files:** First, copy the necessary parser files into your public web directory.
+
+    ```bash
+    npx repograph copy-wasm ./public/wasm
+    ```
+
+2.  **Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `analyzeProject`.
+
+    ```typescript
+    // my-browser-app.ts
+    import { initializeParser, analyzeProject, createMarkdownRenderer } from 'repograph';
+
+    // In-memory file data (e.g., from a file upload, API, or Monaco editor)
+    const files = [
+      { path: 'src/index.ts', content: 'import { a } from "./utils";' },
+      { path: 'src/utils.ts', content: 'export const a = 1;' },
+    ];
+
+    async function runAnalysis() {
+      // 1. Initialize parser with the path to your WASM files
+      await initializeParser({ wasmBaseUrl: '/wasm/' });
+
+      // 2. Analyze the in-memory files
+      const rankedGraph = await analyzeProject({
+        files: files, // This skips file-system discovery
+        rankingStrategy: 'pagerank', // 'git-changes' is not available in browser
+      });
+
+      // 3. Render the output to a string
+      const renderer = createMarkdownRenderer();
+      const markdown = renderer(rankedGraph, { includeMermaidGraph: true });
+
+      // 4. Display the markdown in your app
+      document.getElementById('report-container').innerText = markdown;
+    }
+
+    runAnalysis();
+    ```
+
+## 🧩 The RepoGraph Pipeline
+
+RepoGraph processes your code in four distinct, composable stages:
+
+1.  **`🔍 Discover`**
+    -   Scans the filesystem using glob patterns, respecting `.gitignore`.
+    -   Reads all matching files into memory. (Skipped when `files` are provided).
+
+2.  **`🧠 Analyze`**
+    -   Parses files using **Tree-sitter** and language-specific queries.
+    -   Extracts symbol definitions (classes, functions), relationships (imports, calls), UI structure (JSX tags), and rich semantic qualifiers (`async`, `canThrow`, etc.).
+    -   Builds the core `CodeGraph` of nodes and edges.
+
+3.  **`⭐ Rank`**
+    -   Applies a ranking algorithm (like PageRank) to assign a score to every node in the graph.
+    -   Produces a `RankedCodeGraph`.
+
+4.  **`🎨 Render`**
+    -   Receives the `RankedCodeGraph` and options.
+    -   Generates the final Markdown output, including the summary, Mermaid graph, and detailed breakdowns.
+
+## 📋 API Types Reference
+
+The core `CodeNode` type is enriched with detailed semantic qualifiers.
+
+```typescript
+export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
+
+export type CodeNode = {
+  readonly id: string;           // Unique identifier (e.g., 'src/api.ts#MyClass')
+  readonly type: CodeNodeType;   // Symbol type (class, function, etc.)
+  readonly name: string;         // Symbol name
+  readonly filePath: string;     // File location
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly language?: string;
+  readonly codeSnippet?: string; // Code preview (e.g., function signature)
+
+  // Rich Semantic Qualifiers
+  readonly visibility?: CodeNodeVisibility;
+  readonly isAsync?: boolean;
+  readonly isStatic?: boolean;
+  readonly canThrow?: boolean; // True if the function contains a 'throw' statement
+  readonly isPure?: boolean;   // True if the function appears to have no side-effects
+
+  // Type & Parameter Information
+  readonly returnType?: string;
+  readonly parameters?: Array<{
+    name: string;
+    type?: string;
+  }>;
+};
+```
+
+## ⚡ Performance Optimization
+
+RepoGraph includes powerful parallel processing capabilities to dramatically speed up analysis of large codebases.
+
+### Worker Threads
+
+By default, RepoGraph analyzes files sequentially (`maxWorkers: 1`). For large projects, you can enable parallel processing using worker threads:
+
+```bash
+# CLI: Use 4 parallel workers
+repograph --max-workers 4
+
+# For CPU-intensive projects, use more workers (typically CPU cores)
+repograph --max-workers 8
+```
+
+```typescript
+// API: Configure parallel processing
+import { analyzeProject } from 'repograph';
+
+const graph = await analyzeProject({
+  root: './large-codebase',
+  maxWorkers: 4, // Parallel file processing
+});
+```
+
+### Performance Guidelines
+
+- **Small projects (< 100 files)**: Use `maxWorkers: 1` to avoid worker overhead
+- **Medium projects (100-1000 files)**: Use `maxWorkers: 2-4` for optimal performance
+- **Large projects (> 1000 files)**: Use `maxWorkers: 4-8` or match your CPU core count
+- **CI/CD environments**: Consider available CPU resources and memory limits
+
+### Implementation Details
+
+RepoGraph uses the [`tinypool`](https://github.com/tinylibs/tinypool) library to manage worker threads efficiently. Each worker:
+
+- Parses files using Tree-sitter in isolation
+- Extracts code nodes and relationships
+- Returns serializable data to the main thread
+- Automatically handles worker lifecycle and error recovery
+
+The main thread coordinates workers and resolves cross-file relationships after all files are processed.
+
+## 🌐 Supported Languages
+
+Thanks to Tree-sitter, RepoGraph has robust support for a wide array of popular languages:
+
+-   **JavaScript / TypeScript:** First-class support, including `JSX` and `TSX`.
+-   **Web & UI:** `Vue`, with structural analysis for `HTML` and styling intent for `CSS`.
+-   **Backend:** `Python`, `Java`, `Go`, `Rust`, `C#`, `PHP`, `Ruby`.
+-   **Systems:** `C`, `C++`.
+-   **Web3:** `Solidity`.
+-   ...and more, with support easily extended via new Tree-sitter queries.
+
+## 🙌 Contributing
+
+Contributions are welcome! Whether you're fixing a bug, adding a feature, or improving documentation, your help is appreciated.
+
+1.  Fork the repository (`https://github.com/relaycoder/repograph`).
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Make your changes.
+4.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+5.  Push to the branch (`git push origin feature/AmazingFeature`).
+6.  Open a Pull Request.
+
+This project uses `bun` for development, `eslint` for linting, and `prettier` for formatting. Please ensure your contributions adhere to the existing code style.
+
+## 📜 License
+
+This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for details.
+````
+
+## File: src/cli.ts
+````typescript
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
 import { writeFile } from 'fs/promises';
@@ -452,10 +892,10 @@ run().catch(e => {
     console.error(e);
     process.exit(1);
 });
-```
+````
 
 ## File: src/index.ts
-```typescript
+````typescript
 import { analyzeProject } from 'repograph';
 import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
 import { serializeGraph } from './serializer';
@@ -509,10 +949,53 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   const scnOutput = serializeGraph(graph, config.root);
   return scnOutput;
 };
-```
+
+// Low-level API for composition
+export { serializeGraph };
+
+// Re-export from repograph for advanced users
+export {
+  // High-Level API
+  analyzeProject,
+  generateMap,
+  // Low-Level API
+  createMapGenerator,
+  // Pipeline component factories
+  createDefaultDiscoverer,
+  createTreeSitterAnalyzer,
+  createPageRanker,
+  createGitRanker,
+  createMarkdownRenderer,
+  // Logger utilities
+  logger,
+} from 'repograph';
+
+// Re-export types from repograph
+export type {
+  // Core types
+  FileContent,
+  CodeNode,
+  CodeNodeType,
+  CodeNodeVisibility,
+  CodeEdge,
+  CodeGraph,
+  RankedCodeGraph,
+  RepoGraphMap,
+  RepoGraphOptions,
+  RendererOptions,
+  FileDiscoverer,
+  CssIntent,
+  Analyzer,
+  Ranker,
+  Renderer,
+  // Logger types
+  Logger,
+  LogLevel,
+} from 'repograph';
+````
 
 ## File: src/serializer.ts
-```typescript
+````typescript
 import type {
   RankedCodeGraph,
   CodeNode,
@@ -1060,1271 +1543,10 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 
   return scnParts.join('\n\n');
 };
-```
-
-## File: test/ts/e2e/cli.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { setupTestProject, type TestProject } from '../../test.util';
-import { readFile } from 'fs/promises';
-import { join, resolve } from 'path';
-import { version } from '../../../package.json';
-
-// Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
-
-describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should process glob patterns provided as arguments and print to stdout', async () => {
-    project = await setupTestProject({
-      'a.ts': 'export const A = 1;',
-      'b.ts': 'export const B = 2;',
-    });
-    
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts'], {
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    const exitCode = proc.exitCode;
-
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain('§ (1) a.ts');
-    expect(stdout).not.toContain('b.ts');
-    expect(stderr).toContain('[SCN-TS] Analyzing project...');
-  });
-  
-  it('should write the output to the file specified by --output', async () => {
-    project = await setupTestProject({ 'a.ts': 'export const A = 1;' });
-    const outputPath = join(project.projectDir, 'output.scn');
-
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts', '--output', outputPath], {
-      cwd: project.projectDir,
-    });
-    
-    await proc.exited;
-    
-    const outputContent = await readFile(outputPath, 'utf-8');
-    expect(outputContent).toContain('§ (1) a.ts');
-  });
-
-  it('should respect the tsconfig file specified by --project', async () => {
-    project = await setupTestProject({
-      'Comp.tsx': 'export const C = () => <div />',
-      'tsconfig.test.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
-    });
-
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'Comp.tsx', '-p', 'tsconfig.test.json'], {
-      cwd: project.projectDir,
-    });
-    
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    expect(proc.exitCode).toBe(0);
-    expect(stdout).toContain('◇ (1.1) C');
-  });
-
-  it('should display the correct version with --version', async () => {
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--version']);
-    const stdout = await new Response(proc.stdout).text();
-    expect(stdout.trim()).toBe(version);
-  });
-  
-  it('should display the help screen with --help', async () => {
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--help']);
-    const stdout = await new Response(proc.stdout).text();
-    expect(stdout).toContain('Usage:');
-    expect(stdout).toContain('--output <path>');
-  });
-  
-  it('should exit with a non-zero code on error', async () => {
-    project = await setupTestProject({}); // Empty project
-    
-    // Test with no input files specified - this should trigger the error
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], {
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-
-    const stderr = await new Response(proc.stderr).text();
-    await proc.exited;
-    const exitCode = proc.exitCode;
-    
-    expect(exitCode).not.toBe(0);
-    expect(stderr).toContain('Error: No input files specified');
-  });
-});
-```
-
-## File: test/ts/e2e/config-file.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { setupTestProject, type TestProject } from '../../test.util';
-import { readFile } from 'fs/promises';
-import { join, resolve } from 'path';
-
-// Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
-
-describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-  
-  it('should automatically find and load scn.config.js from the project root', async () => {
-    project = await setupTestProject({
-      'a.ts': 'const a = 1;',
-      'b.ts': 'const b = 2;',
-      'scn.config.js': `export default { include: ['a.ts'] };`,
-    });
-    
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    
-    expect(proc.exitCode).toBe(0);
-    expect(stdout).toContain('§ (1) a.ts');
-    expect(stdout).not.toContain('b.ts');
-  });
-  
-  it('should correctly apply `exclude` patterns from the config', async () => {
-    project = await setupTestProject({
-      'a.ts': 'const a = 1;',
-      'b.ignore.ts': 'const b = 2;',
-      'scn.config.js': `export default { include: ['**/*.ts'], exclude: ['**/*.ignore.ts'] };`,
-    });
-    
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    
-    expect(proc.exitCode).toBe(0);
-    expect(stdout).toContain('§ (1) a.ts');
-    expect(stdout).not.toContain('b.ignore.ts');
-  });
-
-  it('should write to the `output` path specified in the config', async () => {
-    const outputPath = 'dist/output.scn';
-    project = await setupTestProject({
-      'a.ts': 'const a = 1;',
-      'scn.config.js': `import {mkdirSync} from 'fs'; mkdirSync('dist'); export default { include: ['a.ts'], output: '${outputPath}' };`,
-    });
-    
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-    await proc.exited;
-
-    expect(proc.exitCode).toBe(0);
-    const outputContent = await readFile(join(project.projectDir, outputPath), 'utf-8');
-    expect(outputContent).toContain('§ (1) a.ts');
-  });
-
-  it('should override config file settings with CLI flags', async () => {
-    const configOutputPath = 'config-output.scn';
-    const cliOutputPath = 'cli-output.scn';
-    
-    project = await setupTestProject({
-      'a.ts': 'const a = 1;',
-      'b.ts': 'const b = 2;',
-      'scn.config.js': `export default { include: ['a.ts'], output: '${configOutputPath}' };`,
-    });
-    
-    // Override both `include` and `output`
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'b.ts', '-o', cliOutputPath], {
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-    await proc.exited;
-
-    expect(proc.exitCode).toBe(0);
-
-    // Check that the CLI output path was used and has the correct content
-    const cliOutputContent = await readFile(join(project.projectDir, cliOutputPath), 'utf-8');
-    expect(cliOutputContent).toContain('§ (1) b.ts');
-    expect(cliOutputContent).not.toContain('a.ts');
-
-    // Check that the config output path was NOT created
-    await expect(readFile(join(project.projectDir, configOutputPath), 'utf-8')).rejects.toThrow();
-  });
-
-  it('should respect the config file specified by --config or -c', async () => {
-    project = await setupTestProject({
-      'a.ts': 'const a = 1;',
-      'config/my.config.js': `export default { include: ['a.ts'] };`,
-    });
-    
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '-c', 'config/my.config.js'], { 
-      cwd: project.projectDir,
-      stderr: 'pipe',
-      stdout: 'pipe',
-    });
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    
-    expect(proc.exitCode).toBe(0);
-    expect(stdout).toContain('§ (1) a.ts');
-  });
-});
-```
-
-## File: test/ts/e2e/filesystem.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { setupTestProject, type TestProject } from '../../test.util';
-import { readFile, writeFile, rm } from 'fs/promises';
-import { join, resolve } from 'path';
-
-// Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
-
-// Helper to wait for a file to contain specific content
-async function waitForFileContent(filePath: string, expectedContent: string, timeout = 5000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      const content = await readFile(filePath, 'utf-8');
-      if (content.includes(expectedContent)) {
-        return;
-      }
-    } catch {
-      // File might not exist yet
-    }
-    await new Promise(resolve => setTimeout(resolve, 100)); // Poll every 100ms
-  }
-  throw new Error(`Timeout waiting for "${expectedContent}" in ${filePath}`);
-}
-
-describe('SCN Generation: 5. File System & Watch Mode', () => {
-  let project: TestProject | undefined;
-  let watcherProc: ReturnType<typeof Bun.spawn> | undefined;
-
-  afterEach(async () => {
-    if (watcherProc) {
-      watcherProc.kill();
-      watcherProc = undefined;
-    }
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('--watch: should perform an initial scan and re-generate when a file is modified', async () => {
-    project = await setupTestProject({
-      'a.ts': 'export const A = 1;',
-    });
-    const outputPath = join(project.projectDir, 'output.scn');
-
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
-      cwd: project.projectDir,
-    });
-
-    // 1. Wait for initial generation
-    await waitForFileContent(outputPath, 'A = 1');
-    const initialContent = await readFile(outputPath, 'utf-8');
-    expect(initialContent).toContain('§ (1) a.ts');
-    expect(initialContent).toContain('◇ (1.1) A = 1');
-    
-    // 2. Modify the file
-    await writeFile(join(project.projectDir, 'a.ts'), 'export const A = 42;');
-
-    // 3. Wait for re-generation
-    await waitForFileContent(outputPath, 'A = 42');
-    const updatedContent = await readFile(outputPath, 'utf-8');
-    expect(updatedContent).toContain('◇ (1.1) A = 42');
-  });
-
-  it('--watch: should re-generate when a new file matching the glob is added', async () => {
-    project = await setupTestProject({
-      'a.ts': 'export const A = 1;',
-    });
-    const outputPath = join(project.projectDir, 'output.scn');
-
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
-      cwd: project.projectDir,
-    });
-    
-    // 1. Wait for initial generation
-    await waitForFileContent(outputPath, 'a.ts');
-    
-    // 2. Add a new file
-    await writeFile(join(project.projectDir, 'b.ts'), 'export const B = 2;');
-
-    // 3. Wait for re-generation to include the new file
-    await waitForFileContent(outputPath, 'b.ts');
-    const updatedContent = await readFile(outputPath, 'utf-8');
-    expect(updatedContent).toContain('§ (1) a.ts');
-    expect(updatedContent).toContain('§ (2) b.ts');
-  });
-
-  it('--watch: should re-generate when a tracked file is deleted', async () => {
-    project = await setupTestProject({
-      'a.ts': 'export const A = 1;',
-      'b.ts': 'export const B = 2;',
-    });
-    const outputPath = join(project.projectDir, 'output.scn');
-    const fileToDelete = join(project.projectDir, 'b.ts');
-
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
-      cwd: project.projectDir,
-    });
-
-    // 1. Wait for initial generation
-    await waitForFileContent(outputPath, 'b.ts');
-    const initialContent = await readFile(outputPath, 'utf-8');
-    expect(initialContent).toContain('b.ts');
-
-    // 2. Delete the file
-    await rm(fileToDelete);
-
-    // 3. Wait for re-generation (b.ts should be gone)
-    const start = Date.now();
-    let contentHasB = true;
-    while(contentHasB && Date.now() - start < 5000) {
-        const content = await readFile(outputPath, 'utf-8');
-        if (!content.includes('b.ts')) {
-            contentHasB = false;
-        }
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    expect(contentHasB).toBe(false);
-    const updatedContent = await readFile(outputPath, 'utf-8');
-    expect(updatedContent).toContain('a.ts');
-    expect(updatedContent).not.toContain('b.ts');
-  });
-
-  it('should handle file paths with spaces correctly', async () => {
-     project = await setupTestProject({
-      'my component.ts': 'export const MyComponent = 1;',
-    });
-    const outputPath = join(project.projectDir, 'output with spaces.scn');
-    
-    const proc = Bun.spawn(
-      ['bun', 'run', CLI_PATH, 'my component.ts', '-o', 'output with spaces.scn'],
-      { cwd: project.projectDir }
-    );
-    await proc.exited;
-
-    expect(proc.exitCode).toBe(0);
-    const outputContent = await readFile(outputPath, 'utf-8');
-    expect(outputContent).toContain('§ (1) "my component.ts"');
-  });
-});
-```
-
-## File: test/ts/integration/css-parsing.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should generate a ¶ CSS Rule for each selector and include intent symbols', async () => {
-    project = await setupTestProject({
-      'styles.css': `
-        .layout-only {
-          display: flex;
-          position: absolute;
-        }
-        .text-only {
-          font-weight: bold;
-          text-align: center;
-        }
-        .appearance-only {
-          background-color: blue;
-          border: 1px solid red;
-        }
-        .all-intents {
-          padding: 8px; /* layout */
-          font-size: 16px; /* text */
-          color: white; /* appearance */
-        }
-      `,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
-    
-    // The order of intent symbols is sorted alphabetically by the serializer.
-    expect(scn).toContain('  ¶ (1.1) .layout-only { 📐 }');
-    expect(scn).toContain('  ¶ (1.2) .text-only { ✍ }');
-    expect(scn).toContain('  ¶ (1.3) .appearance-only { 💧 }');
-    expect(scn).toContain('  ¶ (1.4) .all-intents { 💧 📐 ✍ }');
-  });
-
-  it('should create links between a JSX element and CSS rules via className', async () => {
-    project = await setupTestProject({
-      'Button.css': `
-        .btn { color: white; }
-        .btn-primary { background-color: blue; }
-      `,
-      'Button.tsx': `
-        import './Button.css';
-        export function Button() {
-          return <button className="btn btn-primary">Click</button>;
-        }
-      `,
-      // tsconfig needed for repograph to process jsx/css imports
-      'tsconfig.json': JSON.stringify({
-        "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
-        "include": ["**/*.ts", "**/*.tsx"]
-      }),
-    });
-    
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
-
-    // File sorting is alphabetical: Button.css -> 1, Button.tsx -> 2
-    const tsxScn = scn.split('\n\n').find(s => s.includes('Button.tsx'));
-    const cssScn = scn.split('\n\n').find(s => s.includes('Button.css'));
-
-    expect(cssScn).toBeDefined();
-    expect(tsxScn).toBeDefined();
-
-    // Check file-level links (import relationship)
-    expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (1.0)');
-    expect(cssScn!).toContain('§ (1) Button.css\n  <- (2.0)');
-
-    // Check entity-level links
-    // ⛶ button (2.2) should link to both .btn (1.1) and .btn-primary (1.2)
-    expect(tsxScn!).toContain('    ⛶ (2.2) button [ class:.btn .btn-primary ]\n      -> (1.1), (1.2)');
-    
-    // ¶ .btn (1.1) should link back to ⛶ button (2.2)
-    expect(cssScn!).toContain('  ¶ (1.1) .btn { 💧 }\n    <- (2.2)');
-    
-    // ¶ .btn-primary (1.2) should link back to ⛶ button (2.2)
-    expect(cssScn!).toContain('  ¶ (1.2) .btn-primary { 💧 }\n    <- (2.2)');
-  });
-
-  it('should create links between a JSX element and a CSS rule via id', async () => {
-    project = await setupTestProject({
-      'App.css': `
-        #main-container { border: 1px solid black; }
-      `,
-      'App.tsx': `
-        import './App.css';
-        export function App() {
-          return <div id="main-container">...</div>;
-        }
-      `,
-      'tsconfig.json': JSON.stringify({
-        "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
-        "include": ["**/*.ts", "**/*.tsx"]
-      }),
-    });
-    
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
-    
-    // File sorting is alphabetical: App.css -> 1, App.tsx -> 2
-    const tsxScn = scn.split('\n\n').find(s => s.includes('App.tsx'));
-    const cssScn = scn.split('\n\n').find(s => s.includes('App.css'));
-
-    expect(cssScn).toBeDefined();
-    expect(tsxScn).toBeDefined();
-
-    // Check entity-level links
-    // ⛶ div (2.2) should link to #main-container (1.1)
-    expect(tsxScn!).toContain('    ⛶ (2.2) div [ id:#main-container ]\n      -> (1.1)');
-    // ¶ #main-container (1.1) should link back to ⛶ div (2.2)
-    expect(cssScn!).toContain('  ¶ (1.1) #main-container { 💧 }\n    <- (2.2)');
-  });
-});
-```
-
-## File: test/ts/integration/dependency-graph.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should resolve and add <- annotations to entities that are used by other entities', async () => {
-    project = await setupTestProject({
-      'util.ts': `export function helper() {}`,
-      'main.ts': `import { helper } from './util'; function main() { helper(); }`,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    const utilScn = scn.split('\n\n').find(s => s.includes('util.ts'));
-    expect(utilScn).toBeDefined();
-    // main.ts is file 1, util.ts is file 2.
-    // main.ts's 'main' (1.1) calls util.ts's 'helper' (2.1)
-    expect(utilScn).toContain('§ (2) util.ts\n  <- (1.0)');
-    expect(utilScn).toContain('  + ~ (2.1) helper()\n    <- (1.1)');
-  });
-
-  it('should add a summary of file-level dependencies and callers on the § file declaration line', async () => {
-    project = await setupTestProject({
-      'config.ts': `export const setting = 1;`,
-      'service.ts': `import { setting } from './config'; export const value = setting;`,
-      'main.ts': `import { value } from './service'; console.log(value);`,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    // Files are sorted alphabetically: config.ts (1), main.ts (2), service.ts (3)
-    // main.ts imports service.ts. service.ts imports config.ts
-    expect(scn).toContain('§ (1) config.ts\n  <- (3.0)');
-    expect(scn).toContain('§ (2) main.ts\n  -> (3.0)');
-    expect(scn).toContain('§ (3) service.ts\n  -> (1.0)\n  <- (2.0)');
-  });
-
-  it('should correctly represent a multi-step dependency chain (A -> B -> C)', async () => {
-    project = await setupTestProject({
-      'c.ts': `export const C = 'c';`,
-      'b.ts': `import { C } from './c'; export const B = C;`,
-      'a.ts': `import { B } from './b'; function run() { console.log(B); }`,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    // File-level links. a.ts (1), b.ts (2), c.ts (3)
-    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
-    expect(scn).toContain('§ (2) b.ts\n  -> (3.0)\n  <- (1.0)');
-    expect(scn).toContain('§ (3) c.ts\n  <- (2.0)');
-
-    // Entity-level links
-    const aScn = scn.split('\n\n').find(s => s.includes('a.ts'));
-    const bScn = scn.split('\n\n').find(s => s.includes('b.ts'));
-    const cScn = scn.split('\n\n').find(s => s.includes('c.ts'));
-
-    expect(aScn).toContain('  ~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
-    expect(bScn).toContain('  + ◇ (2.1) B = C\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
-    expect(cScn).toContain('  + ◇ (3.1) C = \'c\'\n    <- (2.1)'); // C is used by B
-  });
-  
-  it('should link a dependency from the function that uses it, not just the file', async () => {
-    project = await setupTestProject({
-      'util.ts': `export function log() {}`,
-      'main.ts': `
-        import { log } from './util';
-        function run() {
-          log();
-        }
-      `,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
-    expect(mainScn).toBeDefined();
-    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
-    expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1)');
-  });
-
-  it('should support linking to multiple entities on one line', async () => {
-     project = await setupTestProject({
-      'util.ts': `
-        export function helperA() {}
-        export function helperB() {}
-      `,
-      'main.ts': `
-        import { helperA, helperB } from './util';
-        export function run() {
-          helperA();
-          helperB();
-        }
-      `,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
-    expect(mainScn).toBeDefined();
-    // main.ts is file 1, util.ts is file 2.
-    // run is 1.1, helperA is 2.1, helperB is 2.2
-    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
-    expect(mainScn).toContain('  + ~ (1.1) run()\n    -> (2.1), (2.2)');
-  });
-});
-```
-
-## File: test/ts/integration/programmatic-api.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { serializeGraph } from '../../../src/serializer';
-import { setupTestProject, type TestProject } from '../../test.util';
-import type { RankedCodeGraph, CodeNode, CodeEdge as RepographEdge } from 'repograph';
-import { rm } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
-
-// Re-define the extended edge type used internally by the serializer
-type CodeEdge = Omit<RepographEdge, 'type'> & { type: RepographEdge['type'] | 'contains' | 'references' };
-
-describe('SCN Generation: 2. Programmatic API', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-  
-  describe('2.1 High-Level API (generateScn)', () => {
-    it('should generate a valid SCN string given a set of include globs', async () => {
-      project = await setupTestProject({
-        'a.ts': `export const A = 1;`,
-        'b.ts': `export const B = 2;`,
-      });
-
-      const scn = await generateScn({ root: project.projectDir, include: ['a.ts'] });
-      expect(scn).toContain('§ (1) a.ts');
-      expect(scn).not.toContain('b.ts');
-    });
-
-    it('should respect exclude patterns', async () => {
-      project = await setupTestProject({
-        'a.ts': `export const A = 1;`,
-        'b.ignore.ts': `export const B = 2;`,
-      });
-
-      const scn = await generateScn({
-        root: project.projectDir,
-        include: ['**/*.ts'],
-        exclude: ['**/*.ignore.ts'],
-      });
-      expect(scn).toContain('§ (1) a.ts');
-      expect(scn).not.toContain('b.ignore.ts');
-    });
-
-    it('should use the project tsconfig path for better type analysis', async () => {
-      project = await setupTestProject({
-        'Button.tsx': `export const Button = () => <button>Click</button>;`,
-        'tsconfig.json': JSON.stringify({
-            "compilerOptions": { "jsx": "react-jsx" },
-        }),
-      });
-
-      const scn = await generateScn({
-        root: project.projectDir,
-        include: ['**/*.tsx'],
-        project: 'tsconfig.json',
-      });
-      
-      // Correct parsing of JSX depends on tsconfig.json
-      expect(scn).toContain('§ (1) Button.tsx');
-      expect(scn).toContain('+ ◇ (1.2) Button');
-      expect(scn).toContain('⛶ (1.3) button');
-    });
-
-    it('should return an empty string for globs that match no files', async () => {
-      project = await setupTestProject({
-        'a.ts': `export const A = 1;`,
-      });
-      const scn = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
-      expect(scn).toBe('');
-    });
-
-    it('should throw an error for non-existent root directory', async () => {
-        const nonExistentDir = join(tmpdir(), 'scn-ts-non-existent-dir-test');
-        await rm(nonExistentDir, { recursive: true, force: true }).catch(() => {});
-        
-        const promise = generateScn({ root: nonExistentDir, include: ['**/*.ts'] });
-        
-        // repograph is expected to throw when the root path does not exist.
-        await expect(promise).rejects.toThrow();
-    });
-  });
-
-  describe('2.2 Low-Level API (serializeGraph)', () => {
-    it('should serialize a resolved graph into spec-compliant SCN string', () => {
-        const fileNodeA: CodeNode = { id: 'file-a', filePath: 'a.ts', type: 'file', name: 'a.ts', startLine: 1, endLine: 1, codeSnippet: '', };
-        const funcNodeA: CodeNode = { id: 'func-a', filePath: 'a.ts', type: 'function', name: 'funcA', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcA()', };
-        const fileNodeB: CodeNode = { id: 'file-b', filePath: 'b.ts', type: 'file', name: 'b.ts', startLine: 1, endLine: 1, codeSnippet: '', };
-        const funcNodeB: CodeNode = { id: 'func-b', filePath: 'b.ts', type: 'function', name: 'funcB', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcB()', };
-
-        const nodes = new Map<string, CodeNode>([
-            [fileNodeA.id, fileNodeA],
-            [funcNodeA.id, funcNodeA],
-            [fileNodeB.id, fileNodeB],
-            [funcNodeB.id, funcNodeB],
-        ]);
-        
-        const edges: CodeEdge[] = [
-            // File A imports File B
-            { fromId: 'file-a', toId: 'file-b', type: 'imports' },
-            // funcA calls funcB
-            { fromId: 'func-a', toId: 'func-b', type: 'references' },
-        ];
-
-        const ranks = new Map<string, number>([
-            [fileNodeA.id, 0],
-            [funcNodeA.id, 0],
-            [fileNodeB.id, 0],
-            [funcNodeB.id, 0],
-        ]);
-        const graph: RankedCodeGraph = { nodes, edges: edges as any, ranks };
-
-        const scnOutput = serializeGraph(graph);
-        
-        const expectedScn = [
-            '§ (1) a.ts\n  -> (2.0)\n  + ~ (1.1) funcA()\n    -> (2.1)',
-            '§ (2) b.ts\n  <- (1.0)\n  + ~ (2.1) funcB()\n    <- (1.1)'
-        ].join('\n\n');
-        
-        expect(scnOutput).toBe(expectedScn);
-    });
-  });
-});
-```
-
-## File: test/ts/unit/code-entities.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.3 Code Entities', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should represent a class with ◇', async () => {
-    project = await setupTestProject({ 'test.ts': `export class MyClass {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ◇ (1.1) MyClass');
-  });
-
-  it('should represent a namespace with ◇', async () => {
-    project = await setupTestProject({ 'test.ts': `export namespace MyNamespace {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ◇ (1.1) MyNamespace');
-  });
-
-  it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
-    project = await setupTestProject({ 'test.ts': `export const MyModule = { key: 'value' };` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain(`  + ◇ (1.1) MyModule { key: 'value' }`);
-  });
-
-  it('should represent an interface with {}', async () => {
-    project = await setupTestProject({ 'test.ts': `export interface MyInterface {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + {} (1.1) MyInterface');
-  });
-
-  it('should represent an export function with + ~', async () => {
-    project = await setupTestProject({ 'test.ts': `export function myFunc() {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ~ (1.1) myFunc()');
-  });
-
-  it('should represent a const arrow function with ~', async () => {
-    project = await setupTestProject({ 'test.ts': `const myFunc = () => {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  ~ (1.1) myFunc()');
-  });
-
-  it('should represent a class method with ~ and a property with @', async () => {
-    project = await setupTestProject({
-      'test.ts': `
-      export class MyClass {
-        myProp: string = '';
-        myMethod() {}
-      }`,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('    + @ (1.2) myProp');
-    expect(scn).toContain('    + ~ (1.3) myMethod()');
-  });
-
-  it('should represent a top-level const with @', async () => {
-    project = await setupTestProject({ 'test.ts': `const myVar = 123;` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    // Note: repograph represents this as a "variable" and heuristic makes it not a container
-    expect(scn).toContain('  @ (1.1) myVar = 123');
-  });
-
-  it('should correctly handle export default class', async () => {
-    project = await setupTestProject({ 'test.ts': `export default class MyClass {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ◇ (1.1) MyClass');
-  });
-
-  it('should correctly handle export default function', async () => {
-    project = await setupTestProject({ 'test.ts': `export default function myFunc() {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ~ (1.1) myFunc()');
-  });
-
-  it('should correctly handle export default anonymous function', async () => {
-    project = await setupTestProject({ 'test.ts': `export default () => {}` });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-    expect(scn).toContain('  + ~ (1.1) default()'); // repograph names it 'default'
-  });
-});
-```
-
-## File: test/ts/unit/general-structural.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.1 General & Structural', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should generate a § file declaration with a unique ID and correct relative path', async () => {
-    project = await setupTestProject({
-      'a.ts': ``,
-      'b.ts': ``,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    expect(scn).toContain('§ (1) a.ts');
-    expect(scn).toContain('§ (2) b.ts');
-  });
-
-  it('should assign unique, incrementing entity IDs within a file, starting from 1', async () => {
-    project = await setupTestProject({
-      'test.ts': `
-        export function funcA() {}
-        export class ClassB {}
-      `,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    expect(scn).toContain('+ ~ (1.1) funcA()');
-    expect(scn).toContain('+ ◇ (1.2) ClassB');
-  });
-
-  it('should represent a side-effect import with a .0 entity ID', async () => {
-    project = await setupTestProject({
-      'a.ts': `import './b.ts';`,
-      'b.ts': `console.log('side effect');`,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
-    expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
-  });
-
-  it('should represent hierarchical code structures with correct indentation', async () => {
-    project = await setupTestProject({
-      'test.ts': `
-        export namespace MyNamespace {
-          export class MyClass {
-            public myMethod() {}
-          }
-        }
-      `,
-    });
-    const scn = await generateScn({
-      root: project.projectDir,
-      include: [`**/*.ts`],
-    });
-
-    const expected = [
-      '  + ◇ (1.1) MyNamespace',
-      '    + ◇ (1.2) MyClass',
-      '      + ~ (1.3) myMethod()'
-    ].join('\n');
-    expect(scn).toContain(expected);
-  });
-});
-```
-
-## File: test/ts/unit/jsx.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should correctly parse a React functional component with props with ◇', async () => {
-    project = await setupTestProject({
-      'Button.tsx': `
-        export function Button({ label, onClick }: { label: string, onClick: () => void }) {
-          return <button>{label}</button>
-        }
-      `,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
-    expect(scn).toContain('+ ◇ (1.1) Button { props: { label:#, onClick:# } }');
-  });
-  
-  it('should represent a JSX element with ⛶ and its attributes', async () => {
-    project = await setupTestProject({
-      'Component.tsx': `
-        export function Component() {
-          return <div id="main" className="container fluid">Hello</div>;
-        }
-      `,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
-    const divLine = scn.split('\n').find(line => line.includes('⛶ (1.2) div'));
-    expect(divLine).toBeDefined();
-    expect(divLine!).toContain('id:#main');
-    expect(divLine!).toContain('class:.container .fluid');
-  });
-
-  it('should represent JSX hierarchy with indentation', async () => {
-    project = await setupTestProject({
-      'App.tsx': `
-        export function App() {
-          return (
-            <main>
-              <h1>Title</h1>
-            </main>
-          );
-        }
-      `,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
-    const lines = scn.split('\n');
-    const mainIndex = lines.findIndex(l => l.includes('⛶ (1.2) main'));
-    const h1Index = lines.findIndex(l => l.includes('⛶ (1.3) h1'));
-
-    expect(mainIndex).toBeGreaterThan(-1);
-    expect(h1Index).toBeGreaterThan(-1);
-    expect(h1Index).toBe(mainIndex + 1);
-    
-    const mainIndentation = lines[mainIndex]!.match(/^\s*/)?.[0].length ?? 0;
-    const h1Indentation = lines[h1Index]!.match(/^\s*/)?.[0].length ?? 0;
-    
-    expect(h1Indentation).toBeGreaterThan(mainIndentation);
-  });
-
-  it('should correctly parse various export syntaxes, including re-exports and aliases', async () => {
-    project = await setupTestProject({
-      'mod.ts': `
-        const internal = 1;
-        function b() {}
-        export { internal as exported, b };
-        export * from './another';
-      `,
-      'another.ts': 'export const c = 3;',
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    const modScn = scn.split('\n\n').find(s => s.includes('mod.ts'));
-    // Files: another.ts (1), mod.ts (2)
-    expect(modScn).toContain('§ (2) mod.ts\n  -> (1.0)');
-    expect(modScn).toContain('@ (2.1) internal = 1');
-    expect(modScn).toContain('~ (2.2) b()');
-    // Note: The alias `exported` is not represented as a separate SCN entity.
-    // The link is to the original `internal` variable.
-  });
-
-  it('should correctly parse various import syntaxes and link them from the consuming function', async () => {
-    project = await setupTestProject({
-      'util.ts': `
-        export const val = 1;
-        export function func() {}
-        export default class MyClass {}
-      `,
-      'main.ts': `
-        import MyClass, { val } from './util';
-        import * as utils from './util';
-        
-        function run() {
-            const x = val;
-            utils.func();
-            new MyClass();
-        }
-      `
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
-    // Files: main.ts (1), util.ts (2)
-    // Entities in util.ts: val (2.1), func (2.2), MyClass (2.3)
-    // Entity in main.ts: run (1.1)
-    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
-    expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1), (2.2), (2.3)');
-  });
-});
-```
-
-## File: test/ts/unit/qualifiers.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should prefix public members with +', async () => {
-    project = await setupTestProject({
-      'test.ts': `export class MyClass { public myMethod() {} }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.2) myMethod()');
-  });
-
-  it('should prefix private members with -', async () => {
-    project = await setupTestProject({
-      'test.ts': `export class MyClass { private myMethod() {} }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('- ~ (1.2) myMethod()');
-  });
-
-  it('should treat default class members as public and prefix with +', async () => {
-    project = await setupTestProject({
-      'test.ts': `export class MyClass { myMethod() {} }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.2) myMethod()');
-  });
-
-  it('should append ... to an async function or method', async () => {
-    project = await setupTestProject({
-      'test.ts': `
-        export async function myFunc() {}
-        export class MyClass { async myMethod() {} }
-      `,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.1) myFunc() ...');
-    expect(scn).toContain('+ ~ (1.3) myMethod() ...');
-  });
-
-  it('should append ! to a function that has a throw statement', async () => {
-    project = await setupTestProject({
-      'test.ts': `export function myFunc() { throw new Error('test'); }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.1) myFunc() !');
-  });
-
-  it('should correctly handle functions that are both async and can throw', async () => {
-    project = await setupTestProject({
-      'test.ts': `export async function myFunc() { throw new Error('test'); }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.1) myFunc() ... !');
-  });
-  
-  it('should append o to a pure function (repograph heuristic)', async () => {
-    // This test relies on repograph's isPure heuristic.
-    // A simple function with no side effects is a good candidate.
-     project = await setupTestProject({
-      'test.ts': `export function add(a: number, b: number): number { return a + b; }`,
-    });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ~ (1.1) add(a: #, b: #): #number o');
-  });
-});
-```
-
-## File: test/ts/unit/type-system.test.ts
-```typescript
-import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
-import { setupTestProject, type TestProject } from '../../test.util';
-
-describe('SCN Generation: 1.4 Type System Symbols', () => {
-  let project: TestProject | undefined;
-
-  afterEach(async () => {
-    if (project) {
-      await project.cleanup();
-      project = undefined;
-    }
-  });
-
-  it('should represent an enum with ☰', async () => {
-    project = await setupTestProject({ 'test.ts': `export enum Color { Red, Green }` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ ☰ (1.1) Color');
-  });
-
-  it('should represent a type alias with =:', async () => {
-    project = await setupTestProject({ 'test.ts': `export type UserID = string;` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('+ =: (1.1) UserID = string');
-  });
-
-  it('should represent type references in function parameters with #', async () => {
-    project = await setupTestProject({ 'test.ts': `function process(id: string, value: number) {}` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('~ (1.1) process(id: #, value: #)');
-  });
-  
-  it('should represent a function return type with :#Type', async () => {
-    project = await setupTestProject({ 'test.ts': `function isActive(): boolean {}` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('~ (1.1) isActive(): #boolean');
-  });
-  
-  it('should correctly represent complex types like Promise<User>', async () => {
-    project = await setupTestProject({ 'test.ts': `
-      interface User {}
-      function getUser(): Promise<User> { return Promise.resolve({} as User); }
-    `});
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('~ (1.2) getUser(): #Promise<User>');
-  });
-
-  it('should correctly represent generic type parameters and return types', async () => {
-    project = await setupTestProject({ 'test.ts': `
-      function transform<T, U>(data: T[], func: (item: T) => U): U[] { return []; }
-    `});
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
-    expect(scn).toContain('~ (1.1) transform(data: #, func: #): #U[]');
-  });
-});
-```
-
-## File: test/test.util.ts
-```typescript
-import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join, dirname } from 'path';
-
-export interface TestProject {
-  projectDir: string;
-  cleanup: () => Promise<void>;
-}
-
-export async function setupTestProject(files: Record<string, string>): Promise<TestProject> {
-  const projectDir = await mkdtemp(join(tmpdir(), 'scn-test-'));
-
-  for (const [relativePath, content] of Object.entries(files)) {
-    const absolutePath = join(projectDir, relativePath);
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, content, 'utf-8');
-  }
-
-  const cleanup = async () => {
-    await rm(projectDir, { recursive: true, force: true });
-  };
-
-  return { projectDir, cleanup };
-}
-```
+````
 
 ## File: package.json
-```json
+````json
 {
   "name": "scn-ts",
   "version": "1.0.1",
@@ -2377,10 +1599,10 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
     "typescript": "^5"
   }
 }
-```
+````
 
 ## File: tsconfig.json
-```json
+````json
 {
   "compilerOptions": {
     // Environment setup & latest features
@@ -2392,10 +1614,10 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
     "allowJs": true,
 
     // Path mapping for local development
-    // "baseUrl": ".",
-    // "paths": {
-    //   "repograph": ["repograph/src/index.ts"]
-    // },
+    "baseUrl": ".",
+    "paths": {
+      "repograph": ["repograph/src/index.ts"]
+    },
 
     // Bundler mode
     "moduleResolution": "bundler",
@@ -2421,4 +1643,32 @@ export async function setupTestProject(files: Record<string, string>): Promise<T
   "include": ["src", "test"],
   "exclude": ["node_modules", "dist"]
 }
-```
+````
+
+## File: tsup.config.ts
+````typescript
+import { defineConfig } from 'tsup';
+
+export default defineConfig([
+  {
+    entry: ['src/index.ts'],
+    format: ['cjs', 'esm'],
+    dts: true,
+    sourcemap: true,
+    clean: true, // Cleans the dist folder once before building.
+    splitting: false,
+    shims: true,
+  },
+  {
+    entry: ['src/cli.ts'],
+    format: ['cjs', 'esm'],
+    sourcemap: true,
+    splitting: false,
+    shims: true,
+    banner: {
+      js: '#!/usr/bin/env node',
+    },
+    // No .d.ts files for the CLI entry point.
+  },
+]);
+````

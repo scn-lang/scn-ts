@@ -1,13 +1,12 @@
-# scn-ts: Symbolic Context Notation for TypeScript & JavaScript
+***
 
-![SCN-TS Logo placeholder - imagine a minimalist graph/code icon with a magnifying glass or a brain symbol]
+# scn-ts: Symbolic Context Notation for TypeScript & JavaScript
 
 **A hyper-efficient, language-agnostic representation of your codebase's structure, API, and inter-file relationships. Unlock unparalleled context for Large Language Models (LLMs) and advanced code analysis, using a fraction of the tokens.**
 
 [![npm version](https://img.shields.io/npm/v/scn-ts.svg)](https://www.npmjs.com/package/scn-ts)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Bun Test](https://github.com/your-username/scn-ts/actions/workflows/bun.yml/badge.svg)](https://github.com/your-username/scn-ts/actions/workflows/bun.yml) (Assuming a CI setup)
 
 ---
 
@@ -21,6 +20,7 @@ Built on top of the robust `repograph` analysis engine, `scn-ts` provides:
 *   **Comprehensive Structural Map:** Understand classes, functions, variables, interfaces, HTML elements, and CSS rules.
 *   **Inter-File Dependency Graphs:** Clearly visualize how files and entities interact across your project.
 *   **Rich Metadata:** Qualifiers for public/private access, `async`/`throw` behavior, and even a heuristic for "pure" functions.
+*   **Isomorphic: Browser & Node.js Support:** Run analysis anywhere. Use the powerful CLI in your terminal or integrate the library directly into your web-based IDE or analysis tools.
 *   **Language Agnostic Principles:** While `scn-ts` focuses on JS/TS/JSX/CSS, the underlying SCN format is designed to unify concepts across *any* programming language.
 
 **SCN is the bridge between raw code and intelligent code assistants.** It empowers LLMs to "see" your entire codebase's architecture, enabling them to generate more accurate, context-aware, and high-quality code.
@@ -122,46 +122,30 @@ bun install -g scn-ts
 
 ## 🚀 Usage
 
-`scn-ts` can be used via its Command-Line Interface (CLI) or programmatically within your Node.js/Bun applications.
+`scn-ts` can be used via its Command-Line Interface (CLI) or programmatically within your Node.js, Bun, or even browser applications.
 
 ### CLI Usage
 
 The `scn-ts` CLI offers a straightforward way to generate SCN maps from your terminal.
 
 ```bash
-scn-ts [globs...] [options]
+scn-ts [command] [options]
 ```
 
-**Arguments:**
+**Commands:**
 
-*   `globs...`: One or more glob patterns (e.g., `src/**/*.ts`, `components/**/*.tsx`) specifying the files to include in the analysis. If not provided, `scn-ts` will look for an `scn.config.js` or `scn.config.json` file.
+*   `[globs...]` (default): Analyze a repository by providing glob patterns.
+*   `copy-wasm [destination]`: Copy the necessary Tree-sitter WASM files to a specified directory for browser-based usage. The default destination is `./public/wasm`.
 
 **Key Options:**
 
 *   `-o, --output <path>`: Path to write the SCN output file. If omitted, the output is printed to stdout.
 *   `-p, --project <path>`: Path to your `tsconfig.json` file. This is crucial for correct TypeScript/JSX parsing.
-*   `-c, --config <path>`: Path to a custom config file (e.g., `my-scn.js`). Defaults to `scn.config.js` or `scn.config.json` in the current working directory.
+*   `-c, --config <path>`: Path to a custom config file (e.g., `my-scn.js`). Defaults to `scn.config.js` or `scn.config.json`.
 *   `--max-workers <num>`: Number of parallel workers for analysis. (Default: 1). Use higher values for faster analysis on multi-core machines.
 *   `--watch`: Watch files for changes and re-generate the SCN map automatically.
 *   `-v, --version`: Display the current version number.
 *   `-h, --help`: Display the help message.
-*   `--log-level <level>`: Set the logging level (`silent`, `error`, `warn`, `info`, `debug`). Default: `info`.
-
-**Output Formatting Options (for generated Markdown reports):**
-
-These options control how `repograph` renders its default Markdown report, but `scn-ts` primarily focuses on the pure SCN output. They are provided for completeness but might have less impact if you're only using SCN.
-
-*   `--no-header`
-*   `--no-overview`
-*   `--no-mermaid`
-*   `--no-file-list`
-*   `--no-symbol-details`
-*   `--top-file-count <num>`
-*   `--file-section-separator <str>`
-*   `--no-symbol-relations`
-*   `--no-symbol-line-numbers`
-*   `--no-symbol-snippets`
-*   `--max-relations-to-show <num>`
 
 ---
 
@@ -178,11 +162,10 @@ These options control how `repograph` renders its default Markdown report, but `
     ```bash
     scn-ts "src/components/**/*.tsx" --output context.scn -p tsconfig.json
     ```
-
-3.  **Use a custom config file:**
+3.  **Prepare for browser usage by copying WASM files to your public directory:**
 
     ```bash
-    scn-ts -c my-project.scn.config.js
+    scn-ts copy-wasm ./public/wasm
     ```
 
 4.  **Watch mode for continuous generation:**
@@ -202,24 +185,16 @@ For more complex configurations, `scn-ts` automatically looks for `scn.config.js
 ```javascript
 // scn.config.js
 export default {
-  // Base directory for analysis (defaults to CWD)
-  root: './',
   // Glob patterns for files to include
   include: [
     'src/**/*.ts',
     'src/**/*.tsx',
-    'src/**/*.js',
-    'src/**/*.jsx',
-    'styles/**/*.css',
   ],
   // Glob patterns for files to exclude
   exclude: [
     '**/*.test.ts',
-    '**/*.d.ts',
     '**/node_modules/**',
   ],
-  // Path to tsconfig.json (optional, but recommended for TS/JSX)
-  project: 'tsconfig.json',
   // Output file path (optional, will print to stdout if not set)
   output: 'project-map.scn',
   // Number of parallel workers (optional)
@@ -233,7 +208,9 @@ CLI arguments will **override** settings defined in the configuration file.
 
 ### Programmatic API
 
-Integrate `scn-ts` directly into your build scripts or custom tools.
+Integrate `scn-ts` directly into your build scripts, custom tools, or even web applications.
+
+#### Node.js Usage (File System)
 
 ```typescript
 import { generateScn, ScnTsConfig } from 'scn-ts';
@@ -241,18 +218,14 @@ import * as fs from 'node:fs/promises';
 
 async function generateProjectScn() {
   const config: ScnTsConfig = {
-    root: './my-project',
+    // File-system based analysis
     include: ['src/**/*.ts', 'src/**/*.tsx'],
     exclude: ['src/**/*.test.ts'],
-    project: './my-project/tsconfig.json',
-    maxWorkers: 2, // Use 2 workers for analysis
+    maxWorkers: 2,
   };
 
   try {
     const scnMap = await generateScn(config);
-    console.log('Generated SCN Map:\n', scnMap);
-
-    // Optionally save to a file
     await fs.writeFile('my-project-map.scn', scnMap);
     console.log('SCN map saved to my-project-map.scn');
   } catch (error) {
@@ -263,15 +236,66 @@ async function generateProjectScn() {
 generateProjectScn();
 ```
 
-**`ScnTsConfig` Interface:**
+#### Browser Usage (In-Memory)
+
+To use `scn-ts` in the browser, you must provide file content directly.
+
+**1. Copy WASM Files:** First, copy the necessary parser files into your public web directory using the CLI. This only needs to be done once.
+
+```bash
+# This makes the parser files available at, e.g., http://localhost:3000/wasm/
+npx scn-ts copy-wasm ./public/wasm
+```
+
+**2. Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `generateScn`.
+
+```typescript
+// my-browser-app.ts
+import { initializeParser, generateScn, ScnTsConfig } from 'scn-ts';
+
+// In-memory file data (e.g., from a file upload, API, or Monaco editor)
+const files = [
+  { path: 'src/index.ts', content: 'import { a } from "./utils";' },
+  { path: 'src/utils.ts', content: 'export const a = 1;' },
+];
+
+async function runBrowserAnalysis() {
+  try {
+    // 1. Initialize parser with the path to your WASM files
+    await initializeParser({ wasmBaseUrl: '/wasm/' });
+
+    // 2. Analyze the in-memory files
+    const config: ScnTsConfig = {
+      files: files, // This bypasses file-system discovery
+    };
+    const scnMap = await generateScn(config);
+
+    // 3. Display the SCN map in your app
+    document.getElementById('scn-output').innerText = scnMap;
+    console.log('✅ SCN map generated!');
+
+  } catch (error) {
+    console.error('Failed to run browser analysis:', error);
+  }
+}
+
+runBrowserAnalysis();
+```
+
+#### `ScnTsConfig` Interface
 
 ```typescript
 interface ScnTsConfig {
-  root?: string; // The root directory of the project to analyze. Defaults to CWD.
-  include: string[]; // Glob patterns for files to include.
-  exclude?: string[]; // Glob patterns for files to exclude.
-  project?: string; // Path to the project's tsconfig.json.
-  maxWorkers?: number; // Maximum number of parallel workers for analysis. Default: 1.
+  // For Node.js file system analysis
+  root?: string;      // Root directory. Defaults to CWD.
+  include?: string[]; // Glob patterns to include. Required for file-system mode.
+  exclude?: string[]; // Glob patterns to exclude.
+
+  // For Browser/In-Memory analysis
+  files?: readonly { path: string; content: string }[]; // Provide file content directly.
+
+  // Common options
+  maxWorkers?: number; // Max parallel workers (Node.js only). Default: 1.
 }
 ```
 

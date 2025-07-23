@@ -2,17 +2,23 @@ import { analyzeProject } from 'repograph';
 import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
 import { serializeGraph } from './serializer';
 
-/**
- * Configuration options for generating an SCN map.
- * These options are passed to the underlying `repograph` engine.
- */
 export interface ScnTsConfig {
-  /** The root directory of the project to analyze. Defaults to the current working directory. */
+  /**
+   * The root directory of the project to analyze. Defaults to the current working directory.
+   * Not used if `files` is provided.
+   */
   root?: string;
-  /** Glob patterns for files to include. */
-  include: string[];
+  /**
+   * Glob patterns for files to include. Required if `files` is not provided.
+   */
+  include?: string[];
   /** Glob patterns for files to exclude. */
   exclude?: string[];
+  /**
+   * For browser or in-memory usage, provide file contents directly. This will
+   * bypass all file-system operations (`root`, `include`, `exclude`).
+   */
+  files?: readonly { path: string; content: string }[];
   /** Path to the project's tsconfig.json. (Not currently used by repograph) */
   project?: string;
   /**
@@ -43,6 +49,7 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
     include: config.include,
     ignore: config.exclude,
     maxWorkers: config.maxWorkers,
+    files: config.files,
     // We can set other repograph options here if needed, e.g. rankingStrategy
   };
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
@@ -70,6 +77,7 @@ export {
   createMarkdownRenderer,
   // Logger utilities
   logger,
+  initializeParser,
 } from 'repograph';
 
 // Re-export types from repograph
@@ -93,4 +101,6 @@ export type {
   // Logger types
   Logger,
   LogLevel,
+  // Parser types
+  ParserInitializationOptions,
 } from 'repograph';

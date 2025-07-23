@@ -1,8 +1,9 @@
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
-import { writeFile } from 'fs/promises';
-import { resolve, relative } from 'path';
+import { writeFile, readdir, mkdir, copyFile } from 'fs/promises';
+import { resolve, relative, dirname, join } from 'path';
 import { version } from '../package.json';
+import { createRequire } from 'node:module';
 
 interface CliOptions {
   include: string[];
@@ -14,6 +15,40 @@ interface CliOptions {
   help: boolean;
   version: boolean;
 }
+
+const copyWasmFiles = async (destination: string) => {
+  try {
+    const require = createRequire(import.meta.url);
+    const repographMainPath = require.resolve('repograph');
+    const sourceDir = resolve(dirname(repographMainPath), 'wasm');
+
+    if (!existsSync(sourceDir)) {
+      console.error(
+        `[SCN-TS] Error: Could not find WASM files directory for 'repograph'. Looked in ${sourceDir}. Please check your 'repograph' installation.`,
+      );
+      process.exit(1);
+    }
+
+    await mkdir(destination, { recursive: true });
+
+    const wasmFiles = (await readdir(sourceDir)).filter((file) => file.endsWith('.wasm'));
+    if (wasmFiles.length === 0) {
+      console.error(
+        `[SCN-TS] Error: No WASM files found in ${sourceDir}. This might be an issue with the 'repograph' package installation.`,
+      );
+      process.exit(1);
+    }
+    for (const file of wasmFiles) {
+      const srcPath = join(sourceDir, file);
+      const destPath = join(destination, file);
+      await copyFile(srcPath, destPath);
+      console.error(`[SCN-TS] Copied ${file} to ${relative(process.cwd(), destPath)}`);
+    }
+    console.error(`\n[SCN-TS] All ${wasmFiles.length} WASM files copied successfully.`);
+  } catch (err) {
+    console.error('[SCN-TS] Error copying WASM files.', err);
+  }
+};
 
 const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }> = {
   '-o': { key: 'output', takesValue: true },
@@ -102,9 +137,19 @@ function showHelp() {
 
   Usage:
     scn-ts [globs...] [options]
+    scn-ts copy-wasm [destination]
 
   Arguments:
     globs...         Glob patterns specifying files to include.
+
+  Commands:
+    [globs...]       (default) Analyze a repository at the given path.
+    copy-wasm        Copy Tree-sitter WASM files to a directory for browser usage.
+
+  Arguments:
+    globs...         Glob patterns specifying files to include.
+    destination      For 'copy-wasm', the destination directory. (default: ./public/wasm)
+
 
   Options:
     -o, --output <path>      Path to write the SCN output file. (default: stdout)
@@ -118,6 +163,14 @@ function showHelp() {
 }
 
 async function run() {
+  const cliArgs = process.argv.slice(2);
+
+  if (cliArgs[0] === 'copy-wasm') {
+    const destDir = cliArgs[1] || './public/wasm';
+    console.error(`[SCN-TS] Copying WASM files to "${resolve(destDir)}"...`);
+    await copyWasmFiles(destDir);
+    return;
+  }
   const cliOptions = parseArgs(process.argv);
 
   if (cliOptions.version) {
@@ -134,7 +187,7 @@ async function run() {
 
   const config: ScnTsConfig = {
     root: process.cwd(),
-    include: cliOptions.include.length > 0 ? cliOptions.include : (fileConfig.include || []),
+    include: cliOptions.include.length > 0 ? cliOptions.include : fileConfig.include,
     exclude: fileConfig.exclude,
     project: cliOptions.project || fileConfig.project,
     maxWorkers: cliOptions.maxWorkers || fileConfig.maxWorkers,
@@ -142,7 +195,7 @@ async function run() {
   
   const output = cliOptions.output || fileConfig.output;
 
-  if (config.include.length === 0) {
+  if (!config.include || config.include.length === 0) {
     console.error('Error: No input files specified. Provide glob patterns as arguments or in a config file.');
     showHelp();
     process.exit(1);

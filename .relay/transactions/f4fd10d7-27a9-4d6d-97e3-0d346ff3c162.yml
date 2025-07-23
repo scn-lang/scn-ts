@@ -1,0 +1,629 @@
+uuid: f4fd10d7-27a9-4d6d-97e3-0d346ff3c162
+projectId: scn-ts
+createdAt: '2025-07-23T10:57:04.231Z'
+linesAdded: 74
+linesRemoved: 11
+gitCommitMsg: 'feat: expose repograph browser capabilities and copy-wasm CLI'
+promptSummary: >-
+  The user wants to expose repograph's browser-friendly capabilities, such as
+  the `copy-wasm` CLI command, through `scn-ts`.
+reasoning:
+  - >-
+    Here are the modifications to integrate `repograph`'s browser-friendly
+    capabilities, including the `copy-wasm` CLI command, into `scn-ts`.
+  - '### Rationale'
+  - '1.  **`src/cli.ts`**:'
+  - >-
+    *   A new `copy-wasm` command has been added to the CLI. This command is
+    essential for users who want to use `scn-ts` (and its underlying `repograph`
+    engine) in a browser environment, as it copies the required Tree-sitter WASM
+    parser files to a specified public directory.
+  - >-
+    *   A `copyWasmFiles` utility function was implemented. It programmatically
+    finds the `repograph` package in `node_modules`, locates its `wasm`
+    directory, and copies the files. This makes `scn-ts` a self-contained tool
+    for this purpose.
+  - >-
+    *   The help message (`showHelp`) has been updated to document the new
+    command and clarify its usage.
+  - '2.  **`src/index.ts`**:'
+  - >-
+    *   The `ScnTsConfig` interface has been updated to support in-memory
+    analysis, which is crucial for browser environments where there is no file
+    system access.
+  - '*   The `include` property is now optional.'
+  - >-
+    *   A new `files` property has been added, allowing users to provide an
+    array of file objects (`{ path: string, content: string }`) directly.
+  - >-
+    *   The `generateScn` function now passes the `files` array to `repograph`'s
+    `analyzeProject` function, enabling filesystem-free analysis.
+  - >-
+    *   To fully support browser-based initialization, `repograph`'s
+    `initializeParser` function and its corresponding
+    `ParserInitializationOptions` type are now re-exported from `scn-ts`. This
+    allows users to properly initialize the Tree-sitter parsers with the
+    location of the WASM files.
+  - >-
+    These changes "pass on" `repograph`'s new features to `scn-ts` users,
+    enabling a consistent experience for both CLI and programmatic browser-based
+    use cases.
+  - '---'
+  - I will now apply the changes.
+  - I'll start by updating the CLI to include the `copy-wasm` command.
+  - >-
+    Next, I'll update the programmatic API in `src/index.ts` to support browser
+    usage and re-export the necessary `repograph` utilities.
+  - >-
+    The changes are complete. I've updated the CLI and the core library to
+    expose `repograph`'s browser-side capabilities.
+operations:
+  - type: write
+    path: src/cli.ts
+    content: >-
+      --- src/cli.ts
+
+      +++ src/cli.ts
+
+      @@ -1,9 +1,11 @@
+       import { generateScn, type ScnTsConfig } from './index.js';
+       import { existsSync, readFileSync, watch } from 'fs';
+      -import { writeFile } from 'fs/promises';
+
+      -import { resolve, relative } from 'path';
+
+      +import { writeFile, readdir, mkdir, copyFile } from 'fs/promises';
+
+      +import { resolve, relative, dirname, join } from 'path';
+       import { version } from '../package.json';
+      +import { createRequire } from 'node:module';
+       
+       interface CliOptions {
+         include: string[];
+      @@ -14,6 +16,39 @@
+         help: boolean;
+         version: boolean;
+       }
+      +
+
+      +const copyWasmFiles = async (destination: string) => {
+
+      +  try {
+
+      +    const require = createRequire(import.meta.url);
+
+      +    const repographMainPath = require.resolve('repograph');
+
+      +    const sourceDir = resolve(dirname(repographMainPath), 'wasm');
+
+      +
+
+      +    if (!existsSync(sourceDir)) {
+
+      +      console.error(
+
+      +        `[SCN-TS] Error: Could not find WASM files directory for
+      'repograph'. Looked in ${sourceDir}. Please check your 'repograph'
+      installation.`,
+
+      +      );
+
+      +      process.exit(1);
+
+      +    }
+
+      +
+
+      +    await mkdir(destination, { recursive: true });
+
+      +
+
+      +    const wasmFiles = (await readdir(sourceDir)).filter((file) =>
+      file.endsWith('.wasm'));
+
+      +    if (wasmFiles.length === 0) {
+
+      +      console.error(
+
+      +        `[SCN-TS] Error: No WASM files found in ${sourceDir}. This might
+      be an issue with the 'repograph' package installation.`,
+
+      +      );
+
+      +      process.exit(1);
+
+      +    }
+
+      +    for (const file of wasmFiles) {
+
+      +      const srcPath = join(sourceDir, file);
+
+      +      const destPath = join(destination, file);
+
+      +      await copyFile(srcPath, destPath);
+
+      +      console.error(`[SCN-TS] Copied ${file} to ${relative(process.cwd(),
+      destPath)}`);
+
+      +    }
+
+      +    console.error(`\n[SCN-TS] All ${wasmFiles.length} WASM files copied
+      successfully.`);
+
+      +  } catch (err) {
+
+      +    console.error('[SCN-TS] Error copying WASM files.', err);
+
+      +  }
+
+      +};
+       
+       const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }> = {
+         '-o': { key: 'output', takesValue: true },
+      @@ -111,9 +146,20 @@
+       
+         Usage:
+           scn-ts [globs...] [options]
+      +    scn-ts copy-wasm [destination]
+       
+         Arguments:
+           globs...         Glob patterns specifying files to include.
+      +
+
+      +  Commands:
+
+      +    [globs...]       (default) Analyze a repository at the given path.
+
+      +    copy-wasm        Copy Tree-sitter WASM files to a directory for
+      browser usage.
+
+      +
+
+      +  Arguments:
+
+      +    globs...         Glob patterns specifying files to include.
+
+      +    destination      For 'copy-wasm', the destination directory.
+      (default: ./public/wasm)
+
+      +
+       
+         Options:
+           -o, --output <path>      Path to write the SCN output file. (default: stdout)
+      @@ -127,7 +173,15 @@
+       }
+       
+       async function run() {
+      -  const cliOptions = parseArgs(process.argv);
+
+      +  const cliArgs = process.argv.slice(2);
+
+      +
+
+      +  if (cliArgs[0] === 'copy-wasm') {
+
+      +    const destDir = cliArgs[1] || './public/wasm';
+
+      +    console.error(`[SCN-TS] Copying WASM files to
+      "${resolve(destDir)}"...`);
+
+      +    await copyWasmFiles(destDir);
+
+      +    return;
+
+      +  }
+
+      +  const cliOptions = parseArgs(process.argv);
+       
+         if (cliOptions.version) {
+           console.log(version);
+      @@ -142,14 +196,14 @@
+       
+         const config: ScnTsConfig = {
+           root: process.cwd(),
+      -    include: cliOptions.include.length > 0 ? cliOptions.include :
+      (fileConfig.include || []),
+
+      +    include: cliOptions.include.length > 0 ? cliOptions.include :
+      fileConfig.include,
+           exclude: fileConfig.exclude,
+           project: cliOptions.project || fileConfig.project,
+           maxWorkers: cliOptions.maxWorkers || fileConfig.maxWorkers,
+         };
+         
+         const output = cliOptions.output || fileConfig.output;
+       
+      -  if (config.include.length === 0) {
+
+      +  if (!config.include || config.include.length === 0) {
+           console.error('Error: No input files specified. Provide glob patterns as arguments or in a config file.');
+           showHelp();
+           process.exit(1);
+    patchStrategy: new-unified
+  - type: write
+    path: src/index.ts
+    content: >-
+      --- src/index.ts
+
+      +++ src/index.ts
+
+      @@ -2,20 +2,35 @@
+       import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
+       import { serializeGraph } from './serializer';
+       
+      -/**
+
+      - * Configuration options for generating an SCN map.
+
+      - * These options are passed to the underlying `repograph` engine.
+
+      - */
+       export interface ScnTsConfig {
+      -  /** The root directory of the project to analyze. Defaults to the
+      current working directory. */
+
+      +  /**
+
+      +   * The root directory of the project to analyze. Defaults to the
+      current working directory.
+
+      +   * Not used if `files` is provided.
+
+      +   */
+         root?: string;
+      -  /** Glob patterns for files to include. */
+
+      -  include: string[];
+
+      +  /**
+
+      +   * Glob patterns for files to include. Required if `files` is not
+      provided.
+
+      +   */
+
+      +  include?: string[];
+         /** Glob patterns for files to exclude. */
+         exclude?: string[];
+      +  /**
+
+      +   * For browser or in-memory usage, provide file contents directly. This
+      will
+
+      +   * bypass all file-system operations (`root`, `include`, `exclude`).
+
+      +   */
+
+      +  files?: readonly { path: string; content: string }[];
+         /** Path to the project's tsconfig.json. (Not currently used by repograph) */
+         project?: string;
+         /**
+          * The maximum number of parallel workers to use for analysis.
+          * When set to 1, analysis runs in the main thread without workers.
+          * For faster test execution, use higher values (e.g., 4-8).
+          * @default 1
+          */
+      @@ -38,6 +53,7 @@
+           include: config.include,
+           ignore: config.exclude,
+           maxWorkers: config.maxWorkers,
+      +    files: config.files,
+           // We can set other repograph options here if needed, e.g. rankingStrategy
+         };
+         const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+      @@ -58,6 +74,7 @@
+         createGitRanker,
+         createMarkdownRenderer,
+         // Logger utilities
+         logger,
+      +  initializeParser,
+       } from 'repograph';
+       
+       // Re-export types from repograph
+      @@ -77,4 +94,6 @@
+         // Logger types
+         Logger,
+         LogLevel,
+      +  // Parser types
+
+      +  ParserInitializationOptions,
+       } from 'repograph';
+    patchStrategy: new-unified
+snapshot:
+  src/cli.ts: >-
+    import { generateScn, type ScnTsConfig } from './index.js';
+
+    import { existsSync, readFileSync, watch } from 'fs';
+
+    import { writeFile } from 'fs/promises';
+
+    import { resolve, relative } from 'path';
+
+    import { version } from '../package.json';
+
+
+    interface CliOptions {
+      include: string[];
+      output?: string;
+      project?: string;
+      config?: string;
+      maxWorkers?: number;
+      watch: boolean;
+      help: boolean;
+      version: boolean;
+    }
+
+
+    const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue:
+    boolean }> = {
+      '-o': { key: 'output', takesValue: true },
+      '--output': { key: 'output', takesValue: true },
+      '-p': { key: 'project', takesValue: true },
+      '--project': { key: 'project', takesValue: true },
+      '-c': { key: 'config', takesValue: true },
+      '--config': { key: 'config', takesValue: true },
+      '--max-workers': { key: 'maxWorkers', takesValue: true },
+      '--watch': { key: 'watch', takesValue: false },
+      '-h': { key: 'help', takesValue: false },
+      '--help': { key: 'help', takesValue: false },
+      '-v': { key: 'version', takesValue: false },
+      '--version': { key: 'version', takesValue: false },
+    };
+
+
+    function parseArgs(args: string[]): CliOptions {
+      const options: CliOptions = {
+        include: [],
+        watch: false,
+        help: false,
+        version: false,
+      };
+      const cliArgs = args.slice(2);
+
+      for (let i = 0; i < cliArgs.length; i++) {
+        const arg = cliArgs[i];
+        if (!arg) continue;
+        const config = ARG_CONFIG[arg];
+        if (config) {
+          if (config.takesValue) {
+            const value = cliArgs[++i];
+            if (value === undefined) {
+              console.error(`Error: Missing value for argument ${arg}`);
+              process.exit(1);
+            }
+            if (config.key === 'maxWorkers') {
+              const numValue = parseInt(value, 10);
+              if (isNaN(numValue) || numValue < 1) {
+                console.error(`Invalid value for --max-workers: ${value}. Must be a positive integer.`);
+                process.exit(1);
+              }
+              (options as any)[config.key] = numValue;
+            } else {
+              (options as any)[config.key] = value;
+            }
+          } else {
+            (options as any)[config.key] = true;
+          }
+        } else if (arg.startsWith('-')) {
+          console.error(`Unknown option: ${arg}`);
+          process.exit(1);
+        } else {
+          options.include.push(arg);
+        }
+      }
+
+      return options;
+    }
+
+
+    async function loadConfig(configPath?: string): Promise<Partial<ScnTsConfig>
+    & { output?: string }> {
+      const path = resolve(process.cwd(), configPath || 'scn.config.js');
+      if (existsSync(path)) {
+        try {
+          if (path.endsWith('.js')) {
+            const configModule = await import(path);
+            return configModule.default || configModule;
+          }
+          if (path.endsWith('.json')) {
+             return JSON.parse(readFileSync(path, 'utf-8'));
+          }
+        } catch (e) {
+          console.error(`Error loading config file: ${path}`);
+          console.error(e);
+          process.exit(1);
+        }
+      }
+      return {};
+    }
+
+
+    function showHelp() {
+      console.log(`
+      scn-ts v${version}
+      
+      Generates a Symbolic Context Notation map from a TypeScript/JavaScript project.
+
+      Usage:
+        scn-ts [globs...] [options]
+
+      Arguments:
+        globs...         Glob patterns specifying files to include.
+
+      Options:
+        -o, --output <path>      Path to write the SCN output file. (default: stdout)
+        -p, --project <path>     Path to tsconfig.json.
+        -c, --config <path>      Path to a config file. (default: scn.config.js)
+        --max-workers <num>      Number of parallel workers for analysis. (default: 1)
+        --watch                  Watch files for changes and re-generate.
+        -v, --version            Display version number.
+        -h, --help               Display this help message.
+      `);
+    }
+
+
+    async function run() {
+      const cliOptions = parseArgs(process.argv);
+
+      if (cliOptions.version) {
+        console.log(version);
+        return;
+      }
+      
+      if (cliOptions.help) {
+        showHelp();
+        return;
+      }
+
+      const fileConfig = await loadConfig(cliOptions.config);
+
+      const config: ScnTsConfig = {
+        root: process.cwd(),
+        include: cliOptions.include.length > 0 ? cliOptions.include : (fileConfig.include || []),
+        exclude: fileConfig.exclude,
+        project: cliOptions.project || fileConfig.project,
+        maxWorkers: cliOptions.maxWorkers || fileConfig.maxWorkers,
+      };
+      
+      const output = cliOptions.output || fileConfig.output;
+
+      if (config.include.length === 0) {
+        console.error('Error: No input files specified. Provide glob patterns as arguments or in a config file.');
+        showHelp();
+        process.exit(1);
+      }
+
+      const executeGeneration = async () => {
+        try {
+          console.error(`[SCN-TS] Analyzing project...`);
+          const scn = await generateScn(config);
+          if (output) {
+            await writeFile(output, scn, 'utf-8');
+            console.error(`[SCN-TS] SCN map written to ${relative(process.cwd(), output)}`);
+          } else {
+            console.log(scn);
+          }
+        } catch (e: any) {
+          console.error(`[SCN-TS] Error during generation: ${e.message}`);
+          if (!cliOptions.watch) {
+             process.exit(1);
+          }
+        }
+      };
+
+      await executeGeneration();
+      
+      if (cliOptions.watch) {
+        console.error('[SCN-TS] Watching for file changes...');
+        watch(config.root || process.cwd(), { recursive: true }, async (_eventType, filename) => {
+            if (filename) {
+                console.error(`[SCN-TS] Change detected in '${filename}'. Re-generating...`);
+                await executeGeneration();
+            }
+        });
+      }
+    }
+
+
+    run().catch(e => {
+        console.error(e);
+        process.exit(1);
+    });
+  src/index.ts: |-
+    import { analyzeProject } from 'repograph';
+    import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
+    import { serializeGraph } from './serializer';
+
+    /**
+     * Configuration options for generating an SCN map.
+     * These options are passed to the underlying `repograph` engine.
+     */
+    export interface ScnTsConfig {
+      /** The root directory of the project to analyze. Defaults to the current working directory. */
+      root?: string;
+      /** Glob patterns for files to include. */
+      include: string[];
+      /** Glob patterns for files to exclude. */
+      exclude?: string[];
+      /** Path to the project's tsconfig.json. (Not currently used by repograph) */
+      project?: string;
+      /**
+       * The maximum number of parallel workers to use for analysis.
+       * When set to 1, analysis runs in the main thread without workers.
+       * For faster test execution, use higher values (e.g., 4-8).
+       * @default 1
+       */
+      maxWorkers?: number;
+      /** (Future) An array of language parser plugins. */
+      // plugins?: unknown[];
+    }
+
+    /**
+     * High-level API to generate an SCN context map from a project.
+     *
+     * This function orchestrates the entire process:
+     * 1. Invokes `repograph` to analyze the codebase and build a `RankedCodeGraph`.
+     * 2. Serializes the resulting graph into the SCN text format.
+     *
+     * @param config - The configuration specifying which files to analyze.
+     * @returns A promise that resolves to the SCN map as a string.
+     */
+    export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+      // 1. repograph analyzes the project and returns a structured graph.
+      const repoGraphOptions: RepoGraphOptions = {
+        root: config.root,
+        include: config.include,
+        ignore: config.exclude,
+        maxWorkers: config.maxWorkers,
+        // We can set other repograph options here if needed, e.g. rankingStrategy
+      };
+      const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
+
+      // 2. scn-ts serializes that graph into the SCN text format.
+      const scnOutput = serializeGraph(graph, config.root);
+      return scnOutput;
+    };
+
+    // Low-level API for composition
+    export { serializeGraph };
+
+    // Re-export from repograph for advanced users
+    export {
+      // High-Level API
+      analyzeProject,
+      generateMap,
+      // Low-Level API
+      createMapGenerator,
+      // Pipeline component factories
+      createDefaultDiscoverer,
+      createTreeSitterAnalyzer,
+      createPageRanker,
+      createGitRanker,
+      createMarkdownRenderer,
+      // Logger utilities
+      logger,
+    } from 'repograph';
+
+    // Re-export types from repograph
+    export type {
+      // Core types
+      FileContent,
+      CodeNode,
+      CodeNodeType,
+      CodeNodeVisibility,
+      CodeEdge,
+      CodeGraph,
+      RankedCodeGraph,
+      RepoGraphMap,
+      RepoGraphOptions,
+      RendererOptions,
+      FileDiscoverer,
+      CssIntent,
+      Analyzer,
+      Ranker,
+      Renderer,
+      // Logger types
+      Logger,
+      LogLevel,
+    } from 'repograph';
+approved: true

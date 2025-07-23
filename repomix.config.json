@@ -25,12 +25,14 @@
   "include": [
     "package.json",
     "tsconfig.json",
+    "tsup.config.ts",
     "src",
    // "docs/scn.readme.md",
-   "test",
+   // "test",
    // "repograph/src"
    //
-   "repograph/src/index.ts"
+   "repograph/src/index.ts",
+   "repograph/README.md"
 
   ],
   "ignore": {

@@ -1,3 +1,20 @@
+
+
+I think we have wasm files readibility problem from repograph that causing scn-ts `bun test test/ts/integration/ test/ts/unit/` fail while using published repograph version via uncomment this in tsconfig.json of scn-ts
+
+   // "baseUrl": ".",
+    // "paths": {
+    //   "repograph": ["repograph/src/index.ts"]
+    // },
+
+or maybe repograph fail to copy wasm files to dist while tsup building
+
+so please, you have permission to both edit scn-ts and repograph
+
+you should know that published version is super important for production use case
+
+===
+
 test files should not directly import from repograph... should only import from scn-ts src/index to proof that the scn-ts has comprehensive public API and ready for production. also should expose all repograph api trough scn-ts src/index
 
 ===
