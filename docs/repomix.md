@@ -15,7 +15,7 @@ tsconfig.json
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
 import { writeFile } from 'fs/promises';
-import { resolve, join, relative } from 'path';
+import { resolve, relative } from 'path';
 import { version } from '../package.json';
 
 interface CliOptions {
@@ -184,7 +184,7 @@ async function run() {
   
   if (cliOptions.watch) {
     console.error('[SCN-TS] Watching for file changes...');
-    watch(config.root || process.cwd(), { recursive: true }, async (eventType, filename) => {
+    watch(config.root || process.cwd(), { recursive: true }, async (_eventType, filename) => {
         if (filename) {
             console.error(`[SCN-TS] Change detected in '${filename}'. Re-generating...`);
             await executeGeneration();
@@ -262,7 +262,6 @@ import type {
   RankedCodeGraph,
   CodeNode,
   CodeEdge as RepographEdge,
-  CodeNodeVisibility as Visibility,
   CssIntent,
   CodeNodeType,
 } from "repograph";
@@ -719,7 +718,6 @@ const serializeFile = (
 
   // Hierarchical rendering
   const nodeWrappers = symbols.map(s => ({ node: s, children: [] as {node: CodeNode, children: any[]}[] })).sort((a,b) => a.node.startLine - b.node.startLine);
-  const nodeMap = new Map(nodeWrappers.map(w => [w.node.id, w]));
   const topLevelSymbols: typeof nodeWrappers = [];
 
   for (let i = 0; i < nodeWrappers.length; i++) {

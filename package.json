@@ -1,19 +1,52 @@
 {
   "name": "scn-ts",
   "version": "1.0.0",
-  "module": "src/index.ts",
+  "description": "Generate Symbolic Context Notation (SCN) maps from your TypeScript/JavaScript codebase.",
+  "author": "anton",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/scn-ts.git"
+  },
+  "keywords": [
+    "scn",
+    "typescript",
+    "code-analysis",
+    "context-map",
+    "repograph",
+    "cli"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "scn-ts": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "repograph": "0.1.12"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^20.11.24",
+    "tsup": "^8.0.2",
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "typescript": "^5"
-  },
-  "bin": {
-    "scn-ts": "src/cli.ts"
-  },
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "repograph": "0.1.12"
   }
 }

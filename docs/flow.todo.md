@@ -1,3 +1,8 @@
+
+prepare this project for npm publish ready to https://www.npmjs.com/package/scn-ts .. also use tsup
+
+===
+
 if I uncomment this in tsconfig.json of scn-ts
 
    // "baseUrl": ".",

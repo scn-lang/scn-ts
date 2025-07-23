@@ -1,0 +1,215 @@
+uuid: d2a1067b-1a6f-4740-9a3d-36829775f058
+projectId: scn-ts
+createdAt: '2025-07-23T00:53:11.496Z'
+linesAdded: 68
+linesRemoved: 10
+gitCommitMsg: 'feat: Configure project for npm publishing with tsup'
+promptSummary: >-
+  Prepare the project for publishing to npm, including adding a build step with
+  tsup.
+reasoning:
+  - >-
+    Excellent! As an expert AI programmer, I'll get this project ready for its
+    npm debut. Here are the necessary changes to set up the build process with
+    `tsup`, update package metadata, and configure the project for publishing.
+  - '### 1. Create `.gitignore`'
+  - >-
+    First, I'll add a `.gitignore` file. This is crucial to prevent sensitive
+    information, local dependencies (`node_modules`), and build artifacts
+    (`dist`) from being committed to version control.
+  - '### 2. Configure Build Process with `tsup`'
+  - >-
+    Next, I'll introduce `tsup` as the build tool. I'm creating a
+    `tsup.config.ts` file to manage the compilation of the TypeScript source
+    into distributable JavaScript. This configuration creates separate builds
+    for the library API (`index.ts`) and the command-line interface (`cli.ts`),
+    ensuring the CLI script gets the correct `node` shebang.
+  - '### 3. Update `package.json` for Publishing'
+  - >-
+    I'll completely overhaul `package.json` to make it suitable for publishing
+    on npm. This includes:
+  - '- Setting `"private": false` by removing it.'
+  - >-
+    - Adding descriptive metadata like `description`, `repository`, and
+    `keywords`.
+  - >-
+    - Defining the distributable files with `main`, `module`, `types`,
+    `exports`, and `files` fields.
+  - '- Pointing the `bin` field to the compiled CLI file in `dist/`.'
+  - '- Adding `build` scripts using `tsup`.'
+  - >-
+    - Adding necessary development dependencies (`tsup`, `@types/node`,
+    `typescript`).
+  - '### 4. Adjust `tsconfig.json`'
+  - >-
+    Finally, I'll make a small but important adjustment to `tsconfig.json`. I'm
+    enabling `resolveJsonModule` and `esModuleInterop`. This ensures that
+    importing `package.json` (to get the version number in `cli.ts`) is handled
+    robustly by TypeScript and the build tool.
+  - >-
+    These changes will package your project professionally, making it easy to
+    build, publish, and consume.
+operations:
+  - type: write
+    path: tsup.config.ts
+    content: |-
+      import { defineConfig } from 'tsup';
+
+      export default defineConfig([
+        {
+          entry: ['src/index.ts'],
+          format: ['cjs', 'esm'],
+          dts: true,
+          sourcemap: true,
+          clean: true, // Cleans the dist folder once before building.
+          splitting: false,
+          shims: true,
+        },
+        {
+          entry: ['src/cli.ts'],
+          format: ['cjs', 'esm'],
+          sourcemap: true,
+          splitting: false,
+          shims: true,
+          banner: {
+            js: '#!/usr/bin/env node',
+          },
+          // No .d.ts files for the CLI entry point.
+        },
+      ]);
+    patchStrategy: replace
+  - type: write
+    path: package.json
+    content: |-
+      {
+        "name": "scn-ts",
+        "version": "1.0.0",
+        "description": "Generate Symbolic Context Notation (SCN) maps from your TypeScript/JavaScript codebase.",
+        "author": "anton",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "https://github.com/your-username/scn-ts.git"
+        },
+        "keywords": [
+          "scn",
+          "typescript",
+          "code-analysis",
+          "context-map",
+          "repograph",
+          "cli"
+        ],
+        "type": "module",
+        "main": "./dist/index.js",
+        "module": "./dist/index.mjs",
+        "types": "./dist/index.d.ts",
+        "bin": {
+          "scn-ts": "./dist/cli.js"
+        },
+        "files": [
+          "dist"
+        ],
+        "exports": {
+          ".": {
+            "import": "./dist/index.mjs",
+            "require": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+          }
+        },
+        "scripts": {
+          "build": "tsup",
+          "prepublishOnly": "npm run build"
+        },
+        "dependencies": {
+          "repograph": "0.1.12"
+        },
+        "devDependencies": {
+          "@types/bun": "latest",
+          "@types/node": "^20.11.24",
+          "tsup": "^8.0.2",
+          "typescript": "^5.3.3"
+        },
+        "peerDependencies": {
+          "typescript": "^5"
+        }
+      }
+    patchStrategy: replace
+  - type: write
+    path: tsconfig.json
+    content: |-
+      <<<<<<< SEARCH
+          "verbatimModuleSyntax": true,
+          "noEmit": true,
+
+          // Best practices
+      =======
+          "verbatimModuleSyntax": true,
+          "noEmit": true,
+          "resolveJsonModule": true,
+          "esModuleInterop": true,
+
+          // Best practices
+      >>>>>>> REPLACE
+    patchStrategy: multi-search-replace
+snapshot:
+  tsup.config.ts: null
+  package.json: |
+    {
+      "name": "scn-ts",
+      "version": "1.0.0",
+      "module": "src/index.ts",
+      "devDependencies": {
+        "@types/bun": "latest"
+      },
+      "peerDependencies": {
+        "typescript": "^5"
+      },
+      "bin": {
+        "scn-ts": "src/cli.ts"
+      },
+      "private": true,
+      "type": "module",
+      "dependencies": {
+        "repograph": "0.1.12"
+      }
+    }
+  tsconfig.json: |
+    {
+      "compilerOptions": {
+        // Environment setup & latest features
+        "lib": ["ESNext"],
+        "target": "ESNext",
+        "module": "Preserve",
+        "moduleDetection": "force",
+        "jsx": "react-jsx",
+        "allowJs": true,
+
+        // Path mapping for local development
+        // "baseUrl": ".",
+        // "paths": {
+        //   "repograph": ["repograph/src/index.ts"]
+        // },
+
+        // Bundler mode
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "noEmit": true,
+
+        // Best practices
+        "strict": true,
+        "skipLibCheck": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "noImplicitOverride": true,
+
+        // Some stricter flags (disabled by default)
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitAny": true,
+        "noPropertyAccessFromIndexSignature": false
+      },
+      "include": ["src", "test"],
+      "exclude": ["node_modules", "dist"]
+    }
+approved: true
