@@ -812,19 +812,22 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 ## File: package.json
 ```json
 {
-  "version": "1.0.0",
   "name": "scn-ts",
+  "version": "1.0.0",
   "module": "src/index.ts",
-  "bin": {
-    "scn-ts": "src/cli.ts"
-  },
-  "type": "module",
-  "private": true,
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "bin": {
+    "scn-ts": "src/cli.ts"
+  },
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "repograph": "0.1.12"
   }
 }
 ```
@@ -842,10 +845,10 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "allowJs": true,
 
     // Path mapping for local development
-    "baseUrl": ".",
-    "paths": {
-      "repograph": ["repograph/src/index.ts"]
-    },
+    // "baseUrl": ".",
+    // "paths": {
+    //   "repograph": ["repograph/src/index.ts"]
+    // },
 
     // Bundler mode
     "moduleResolution": "bundler",
@@ -861,8 +864,9 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "noImplicitOverride": true,
 
     // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
     "noPropertyAccessFromIndexSignature": false
   },
   "include": ["src", "test"],

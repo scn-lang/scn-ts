@@ -1,7 +1,7 @@
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
 import { writeFile } from 'fs/promises';
-import { resolve, join, relative } from 'path';
+import { resolve, relative } from 'path';
 import { version } from '../package.json';
 
 interface CliOptions {
@@ -170,7 +170,7 @@ async function run() {
   
   if (cliOptions.watch) {
     console.error('[SCN-TS] Watching for file changes...');
-    watch(config.root || process.cwd(), { recursive: true }, async (eventType, filename) => {
+    watch(config.root || process.cwd(), { recursive: true }, async (_eventType, filename) => {
         if (filename) {
             console.error(`[SCN-TS] Change detected in '${filename}'. Re-generating...`);
             await executeGeneration();

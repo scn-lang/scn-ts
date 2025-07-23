@@ -2,7 +2,6 @@ import type {
   RankedCodeGraph,
   CodeNode,
   CodeEdge as RepographEdge,
-  CodeNodeVisibility as Visibility,
   CssIntent,
   CodeNodeType,
 } from "repograph";
@@ -459,7 +458,6 @@ const serializeFile = (
 
   // Hierarchical rendering
   const nodeWrappers = symbols.map(s => ({ node: s, children: [] as {node: CodeNode, children: any[]}[] })).sort((a,b) => a.node.startLine - b.node.startLine);
-  const nodeMap = new Map(nodeWrappers.map(w => [w.node.id, w]));
   const topLevelSymbols: typeof nodeWrappers = [];
 
   for (let i = 0; i < nodeWrappers.length; i++) {
