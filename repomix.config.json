@@ -26,8 +26,10 @@
     "package.json",
     "tsconfig.json",
     "src",
- //   "docs/scn.readme.md",
- //   "test",
+   "docs/scn.readme.md",
+   "test",
+   "repograph/src"
+
   ],
   "ignore": {
     "useGitignore": true,
