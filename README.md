@@ -225,9 +225,10 @@ async function generateProjectScn() {
   };
 
   try {
-    const scnMap = await generateScn(config);
-    await fs.writeFile('my-project-map.scn', scnMap);
+    const { scn, graph } = await generateScn(config);
+    await fs.writeFile('my-project-map.scn', scn);
     console.log('SCN map saved to my-project-map.scn');
+    console.log(`Analyzed ${graph.nodes.size} nodes and ${graph.edges.length} edges`);
   } catch (error) {
     console.error('Failed to generate SCN map:', error);
   }
@@ -238,7 +239,7 @@ generateProjectScn();
 
 #### Browser Usage (In-Memory)
 
-To use `scn-ts` in the browser, you must provide file content directly.
+To use `scn-ts` in the browser, you must provide file content directly. The browser version includes **Web Worker support** for parallel processing and enhanced performance.
 
 **1. Copy WASM Files:** First, copy the necessary parser files into your public web directory using the CLI. This only needs to be done once.
 
@@ -247,7 +248,7 @@ To use `scn-ts` in the browser, you must provide file content directly.
 npx scn-ts copy-wasm ./public/wasm
 ```
 
-**2. Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `generateScn`.
+**2. Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `generateScn`. The new API returns both the SCN string and the analyzed graph.
 
 ```typescript
 // my-browser-app.ts
@@ -267,12 +268,14 @@ async function runBrowserAnalysis() {
     // 2. Analyze the in-memory files
     const config: ScnTsConfig = {
       files: files, // This bypasses file-system discovery
+      maxWorkers: 4, // Enable parallel processing with Web Workers
     };
-    const scnMap = await generateScn(config);
+    const { scn, graph } = await generateScn(config);
 
     // 3. Display the SCN map in your app
-    document.getElementById('scn-output').innerText = scnMap;
+    document.getElementById('scn-output').innerText = scn;
     console.log('✅ SCN map generated!');
+    console.log(`Graph contains ${graph.nodes.size} nodes and ${graph.edges.length} edges`);
 
   } catch (error) {
     console.error('Failed to run browser analysis:', error);
@@ -280,6 +283,255 @@ async function runBrowserAnalysis() {
 }
 
 runBrowserAnalysis();
+```
+
+#### Building Web Applications with SCN-TS
+
+Building web applications with `scn-ts` requires handling several complexities around WASM files, bundler configuration, and Web Workers. Here's a comprehensive guide:
+
+##### 1. Project Setup & Dependencies
+
+```bash
+# Install scn-ts in your web project
+npm install scn-ts
+
+# Copy WASM files to your public directory
+npx scn-ts copy-wasm ./public/wasm
+```
+
+##### 2. Bundler Configuration
+
+**Vite (Recommended):**
+```typescript
+// vite.config.ts
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  // Vite handles WASM files automatically
+  optimizeDeps: {
+    exclude: ['scn-ts'] // Prevent pre-bundling for better WASM handling
+  },
+  server: {
+    fs: {
+      allow: ['..'] // Allow access to WASM files
+    }
+  }
+});
+```
+
+**Webpack:**
+```javascript
+// webpack.config.js
+module.exports = {
+  experiments: {
+    asyncWebAssembly: true,
+  },
+  module: {
+    rules: [
+      {
+        test: /\.wasm$/,
+        type: 'webassembly/async',
+      },
+    ],
+  },
+};
+```
+
+##### 3. Application Integration
+
+```typescript
+// src/scn-analyzer.ts
+import { initializeParser, generateScn, type FileContent } from 'scn-ts';
+
+export class ScnAnalyzer {
+  private initialized = false;
+
+  async initialize() {
+    if (this.initialized) return;
+    
+    try {
+      await initializeParser({ 
+        wasmBaseUrl: '/wasm/',
+        // Optional: configure worker settings
+        maxWorkers: navigator.hardwareConcurrency || 4
+      });
+      this.initialized = true;
+      console.log('SCN-TS initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize SCN-TS:', error);
+      throw error;
+    }
+  }
+
+  async analyzeFiles(files: FileContent[], options?: { maxWorkers?: number }) {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    try {
+      const { scn, graph } = await generateScn({
+        files,
+        maxWorkers: options?.maxWorkers || 1
+      });
+
+      return {
+        scn,
+        stats: {
+          nodes: graph.nodes.size,
+          edges: graph.edges.length,
+          files: files.length
+        }
+      };
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      throw error;
+    }
+  }
+}
+```
+
+##### 4. React Integration Example
+
+```tsx
+// src/components/CodeAnalyzer.tsx
+import React, { useState, useCallback, useRef } from 'react';
+import { ScnAnalyzer } from '../scn-analyzer';
+
+const CodeAnalyzer: React.FC = () => {
+  const [scnOutput, setScnOutput] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const analyzerRef = useRef<ScnAnalyzer>();
+
+  // Initialize analyzer on component mount
+  React.useEffect(() => {
+    analyzerRef.current = new ScnAnalyzer();
+  }, []);
+
+  const handleAnalyze = useCallback(async (files: FileContent[]) => {
+    if (!analyzerRef.current) return;
+
+    setIsAnalyzing(true);
+    setError(null);
+
+    try {
+      const result = await analyzerRef.current.analyzeFiles(files, {
+        maxWorkers: 4 // Use Web Workers for better performance
+      });
+      
+      setScnOutput(result.scn);
+      console.log('Analysis complete:', result.stats);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, []);
+
+  return (
+    <div className="code-analyzer">
+      <button 
+        onClick={() => handleAnalyze([
+          { path: 'example.ts', content: 'export const hello = "world";' }
+        ])}
+        disabled={isAnalyzing}
+      >
+        {isAnalyzing ? 'Analyzing...' : 'Analyze Code'}
+      </button>
+      
+      {error && <div className="error">Error: {error}</div>}
+      {scnOutput && <pre className="scn-output">{scnOutput}</pre>}
+    </div>
+  );
+};
+```
+
+##### 5. Common Issues & Solutions
+
+**WASM Loading Issues:**
+```typescript
+// Handle WASM loading failures gracefully
+try {
+  await initializeParser({ wasmBaseUrl: '/wasm/' });
+} catch (error) {
+  if (error.message.includes('fetch')) {
+    console.error('WASM files not found. Run: npx scn-ts copy-wasm ./public/wasm');
+  }
+  throw error;
+}
+```
+
+**Bundle Size Optimization:**
+```typescript
+// Lazy load scn-ts to reduce initial bundle size
+const loadScnTs = async () => {
+  const { initializeParser, generateScn } = await import('scn-ts');
+  return { initializeParser, generateScn };
+};
+```
+
+**Web Worker Debugging:**
+```typescript
+// Enable detailed logging for Web Worker issues
+import { logger } from 'scn-ts';
+
+logger.setLevel('debug'); // Enable debug logs
+```
+
+##### 6. Performance Considerations
+
+- **Use Web Workers**: Set `maxWorkers > 1` for large codebases
+- **Lazy Loading**: Import `scn-ts` only when needed
+- **WASM Caching**: Ensure WASM files are properly cached by your CDN
+- **Memory Management**: For very large analyses, consider processing files in batches
+
+##### 7. Live Web Demo
+
+Experience `scn-ts` in action with our interactive web demo:
+
+```bash
+# Run the web demo locally
+cd web-demo
+npm install
+npm run get-wasm  # Copy WASM files to public directory
+npm run dev       # Start development server at http://localhost:5173
+```
+
+The web demo showcases:
+- **Real-time SCN generation** in the browser
+- **Web Worker benchmarking** - compare performance with 1, 2, 4, and 8 workers
+- **Stress testing** - multiply input files to test performance at scale
+- **Performance metrics** - detailed timing and throughput analysis
+- **Interactive editor** - modify TypeScript/JavaScript code and see instant SCN output
+
+#### API Changes in v2.0
+
+**Breaking Change:** The `generateScn` function now returns an object instead of just a string:
+
+```typescript
+// ❌ Old API (v1.x)
+const scn: string = await generateScn(config);
+
+// ✅ New API (v2.x)
+const { scn, graph }: { scn: string; graph: RankedCodeGraph } = await generateScn(config);
+```
+
+**Benefits of the new API:**
+- **Access to the analyzed graph** - inspect nodes, edges, and relationships programmatically
+- **Enhanced debugging** - understand what was analyzed and how
+- **Advanced integrations** - build custom tools on top of the graph data
+- **Performance insights** - track analysis metrics and statistics
+
+**Migration Guide:**
+```typescript
+// Before
+const scn = await generateScn(config);
+console.log(scn);
+
+// After  
+const { scn, graph } = await generateScn(config);
+console.log(scn);
+console.log(`Analyzed ${graph.nodes.size} nodes and ${graph.edges.length} edges`);
 ```
 
 #### `ScnTsConfig` Interface
