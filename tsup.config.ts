@@ -9,6 +9,7 @@ export default defineConfig([
     clean: true, // Cleans the dist folder once before building.
     splitting: false,
     shims: true,
+    external: ['repograph'],
   },
   {
     entry: ['src/cli.ts'],
@@ -16,6 +17,7 @@ export default defineConfig([
     sourcemap: true,
     splitting: false,
     shims: true,
+    external: ['repograph'],
     banner: {
       js: '#!/usr/bin/env node',
     },

@@ -439,18 +439,48 @@ const serializeFile = (
     if (edges.length === 0) return '';
     const links = edges.map((edge: CodeEdge) => {
       const targetId = prefix === '->' ? edge.toId : edge.fromId;
-      const targetScnId = idManager.getScnId(targetId);
+      const targetNode = graph.nodes.get(targetId);
+      
+      // If the target is an entity (not a file), we need to get its file's ID
+      let fileId: string;
+      if (targetNode?.type === 'file') {
+        fileId = targetId;
+      } else {
+        // Find the file that contains this entity
+        const entityFilePath = targetNode?.filePath;
+        const fileNode = Array.from(graph.nodes.values()).find(n => n.type === 'file' && n.filePath === entityFilePath);
+        fileId = fileNode?.id || targetId;
+      }
+      
+      const targetScnId = idManager.getScnId(fileId);
       return `(${targetScnId}.0)`;
-    }).sort().join(', ');
-    if (!links) return '';
-    return `\n  ${prefix} ${links}`;
+    }).filter(Boolean);
+    
+    // Remove duplicates and sort
+    const uniqueLinks = [...new Set(links)].sort().join(', ');
+    if (!uniqueLinks) return '';
+    return `\n  ${prefix} ${uniqueLinks}`;
   };
 
-  const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
-  const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
+  // File-level dependencies: imports or calls from this file to other files
+  const fileDependencies = graph.edges.filter(e => 
+    e.fromId === fileNode.id && 
+    (e.type === 'imports' || (e.type === 'calls' && graph.nodes.get(e.toId)?.type !== 'file'))
+  );
+  
+  // File-level callers: imports or calls to entities in this file from other files  
+  const fileCallers = graph.edges.filter(e => {
+    const toNode = graph.nodes.get(e.toId);
+    const fromNode = graph.nodes.get(e.fromId);
+    
+    // If the target is an entity in this file and the source is from a different file
+    return toNode?.filePath === fileNode.filePath && 
+           fromNode?.filePath !== fileNode.filePath &&
+           (e.type === 'imports' || e.type === 'calls');
+  });
 
-    const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
-    let header = `§ (${scnId}) ${formattedPath}`;
+  const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
+  let header = `§ (${scnId}) ${formattedPath}`;
   const fileDepLine = formatFileLinks('->', fileDependencies);
   if (fileDepLine) header += fileDepLine;
   const fileCallerLine = formatFileLinks('<-', fileCallers);

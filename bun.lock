@@ -4,7 +4,7 @@
     "": {
       "name": "scn-ts",
       "dependencies": {
-        "repograph": "^0.1.17",
+        "repograph": "^0.1.18",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -296,7 +296,7 @@
 
     "readdirp": ["readdirp@4.1.2", "", {}, "sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg=="],
 
-    "repograph": ["repograph@0.1.17", "", { "dependencies": { "@types/js-yaml": "^4.0.9", "globby": "^14.1.0", "graphology": "^0.26.0", "graphology-pagerank": "^1.1.0", "ignore": "^7.0.5", "js-yaml": "^4.1.0", "tinypool": "^0.8.2", "tree-sitter-c": "^0.24.1", "tree-sitter-c-sharp": "^0.23.1", "tree-sitter-cpp": "^0.23.4", "tree-sitter-css": "^0.23.2", "tree-sitter-go": "^0.23.4", "tree-sitter-java": "^0.23.5", "tree-sitter-php": "^0.23.12", "tree-sitter-python": "^0.23.6", "tree-sitter-ruby": "^0.23.1", "tree-sitter-rust": "^0.24.0", "tree-sitter-solidity": "^1.2.11", "tree-sitter-swift": "^0.7.1", "tree-sitter-typescript": "^0.23.2", "tree-sitter-vue": "^0.2.1", "web-tree-sitter": "^0.25.6" }, "bin": { "repograph": "dist/index.js" } }, "sha512-7TEihP+vF25DbvG41yTNbjDsWCfgJIFiQm1hZBZE+nxyIRZ7V+waFLzV6YXJOmeWVPu2dBkYQo/kDHSYSlrVkg=="],
+    "repograph": ["repograph@0.1.18", "", { "dependencies": { "@types/js-yaml": "^4.0.9", "globby": "^14.1.0", "graphology": "^0.26.0", "graphology-pagerank": "^1.1.0", "js-yaml": "^4.1.0", "tinypool": "^0.8.2", "tree-sitter-c": "^0.24.1", "tree-sitter-c-sharp": "^0.23.1", "tree-sitter-cpp": "^0.23.4", "tree-sitter-css": "^0.23.2", "tree-sitter-go": "^0.23.4", "tree-sitter-java": "^0.23.5", "tree-sitter-php": "^0.23.12", "tree-sitter-python": "^0.23.6", "tree-sitter-ruby": "^0.23.1", "tree-sitter-rust": "^0.24.0", "tree-sitter-solidity": "^1.2.11", "tree-sitter-swift": "^0.7.1", "tree-sitter-typescript": "^0.23.2", "tree-sitter-vue": "^0.2.1", "web-tree-sitter": "^0.25.6" }, "bin": { "repograph": "dist/index.js" } }, "sha512-n7+zd2gNzZJGNKg+zfmSpyqS+4F7bqzzXJ9QUzerGodkaBVi7oEiTnYIRuJZGmHNEO/uYHUE8FKgwa7POp2NKw=="],
 
     "resolve-from": ["resolve-from@5.0.0", "", {}, "sha512-qYg9KP24dD5qka9J47d0aVky0N+b4fTU89LN9iDnjB5waksiC49rvMB0PrUJQGoTmH50XPiqOvAjDfaijGxYZw=="],
 

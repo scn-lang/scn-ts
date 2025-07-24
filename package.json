@@ -38,7 +38,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "repograph": "^0.1.17"
+    "repograph": "file:repograph/repograph-0.1.18.tgz"
   },
   "devDependencies": {
     "@types/bun": "latest",
