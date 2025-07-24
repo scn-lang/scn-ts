@@ -42,7 +42,7 @@ export interface ScnTsConfig {
  * @param config - The configuration specifying which files to analyze.
  * @returns A promise that resolves to the SCN map as a string.
  */
-export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+export const generateScn = async (config: ScnTsConfig): Promise<{ scn: string; graph: RankedCodeGraph }> => {
   // 1. repograph analyzes the project and returns a structured graph.
   const repoGraphOptions: RepoGraphOptions = {
     root: config.root,
@@ -55,8 +55,8 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
 
   // 2. scn-ts serializes that graph into the SCN text format.
-  const scnOutput = serializeGraph(graph, config.root);
-  return scnOutput;
+  const scnOutput = serializeGraph(graph, config.root, config.files);
+  return { scn: scnOutput, graph };
 };
 
 // Low-level API for composition

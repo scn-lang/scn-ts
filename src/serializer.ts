@@ -11,8 +11,6 @@ import type {
 type CodeEdge = Omit<RepographEdge, 'type'> & {
   type: RepographEdge['type'] | 'contains' | 'references';
 };
-import { readFileSync } from "fs";
-import { join } from "path";
 
 type ScnSymbol = "◇" | "~" | "@" | "{}" | "☰" | "=:" | "⛶" | "¶" | "?";
 type QualifierSymbol = "+" | "-" | "..." | "!" | "o";
@@ -86,26 +84,46 @@ class ScnIdManager {
 // Cache for source file contents to avoid reading files multiple times
 const sourceFileCache = new Map<string, string>();
 
-const getSourceContent = (filePath: string, rootDir?: string): string => {
-  const fullPath = rootDir ? join(rootDir, filePath) : filePath;
-  if (!sourceFileCache.has(fullPath)) {
+const getSourceContent = (
+  filePath: string,
+  rootDir?: string,
+  files?: readonly { path: string; content: string }[]
+): string => {
+  // If files are provided in-memory, use them. The cache is pre-populated in serializeGraph
+  if (files) {
+    return sourceFileCache.get(filePath) || '';
+  }
+
+  // Fallback to filesystem for Node.js environment
+  // Use eval to prevent bundlers from including 'fs' and 'path' in browser builds
+  if (typeof window === 'undefined') {
     try {
-      const content = readFileSync(fullPath, 'utf-8');
+      const fs = eval("require('fs')");
+      const path = eval("require('path')");
+      const fullPath = rootDir ? path.join(rootDir, filePath) : filePath;
+      if (sourceFileCache.has(fullPath)) {
+        return sourceFileCache.get(fullPath)!;
+      }
+      const content = fs.readFileSync(fullPath, 'utf-8');
       sourceFileCache.set(fullPath, content);
-    } catch {
-      sourceFileCache.set(fullPath, '');
+      return content;
+    } catch (e) {
+      sourceFileCache.set(filePath, ''); // cache miss
+      return '';
     }
   }
-  return sourceFileCache.get(fullPath) || '';
+
+  // In browser without files provided, we can't do anything
+  return '';
 };
 
-const getVisibilitySymbol = (node: CodeNode, rootDir?: string): '+' | '-' | undefined => {
+const getVisibilitySymbol = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): '+' | '-' | undefined => {
   if (node.visibility === 'public') return '+';
   if (node.visibility === 'private' || node.visibility === 'protected') return '-';
   if (node.type === 'file') return undefined;
 
   // Fallback to source-based inference if repograph doesn't provide visibility.
-  const source = getSourceContent(node.filePath, rootDir);
+  const source = getSourceContent(node.filePath, rootDir, files);
   if (!source) return undefined;
   
   const line = (source.split('\n')[node.startLine - 1] || '').trim();
@@ -148,8 +166,8 @@ const getNodeSymbol = (node: CodeNode): ScnSymbol => {
   return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
 };
 
-const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; others: QualifierSymbol[] } => {
-  const access = getVisibilitySymbol(node, rootDir);
+const getQualifiers = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): { access?: '+' | '-'; others: QualifierSymbol[] } => {
+  const access = getVisibilitySymbol(node, rootDir, files);
   
   const others: QualifierSymbol[] = [];
   
@@ -162,18 +180,18 @@ const getQualifiers = (node: CodeNode, rootDir?: string): { access?: '+' | '-'; 
   if (canThrow) others.push('!');
   
   // Check for pure function heuristic
-  const isPure = node.isPure || isPureFunction(node, rootDir);
+  const isPure = node.isPure || isPureFunction(node, rootDir, files);
   if (isPure) others.push('o');
   
   return { access, others };
 };
 
-const isPureFunction = (node: CodeNode, rootDir?: string): boolean => {
+const isPureFunction = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): boolean => {
   if (!['function', 'method', 'arrow_function'].includes(node.type)) return false;
   if (!node.codeSnippet) return false;
   
   // Get the full source to analyze the function body
-  const source = getSourceContent(node.filePath, rootDir);
+  const source = getSourceContent(node.filePath, rootDir, files);
   if (!source) return false;
   
   const lines = source.split('\n');
@@ -266,11 +284,11 @@ const formatJsxAttributes = (snippet: string): string => {
     return attrs.length > 0 ? `[ ${attrs.join(' ')} ]` : '';
 }
 
-const formatSignature = (node: CodeNode, rootDir?: string): string => {
+const formatSignature = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): string => {
   if (isComponentNode(node)) {
     // For components, we need to extract props from the full function signature
     // Get the source content to find the complete function definition
-    const source = getSourceContent(node.filePath, rootDir);
+    const source = getSourceContent(node.filePath, rootDir, files);
     if (source) {
       const lines = source.split('\n');
       const startLine = node.startLine - 1;
@@ -351,10 +369,10 @@ const formatSignature = (node: CodeNode, rootDir?: string): string => {
   return '';
 };
 
-const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string, level = 0): string => {
+const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string, level = 0, files?: readonly { path: string; content: string }[]): string => {
   const symbol = getNodeSymbol(node);
-  const { access, others } = getQualifiers(node, rootDir);
-  const signature = formatSignature(node, rootDir);
+  const { access, others } = getQualifiers(node, rootDir, files);
+  const signature = formatSignature(node, rootDir, files);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
   const indent = '  '.repeat(level + 1);
@@ -431,7 +449,8 @@ const serializeFile = (
   symbols: CodeNode[],
   graph: RankedCodeGraph,
   idManager: ScnIdManager,
-  rootDir?: string
+  rootDir?: string,
+  files?: readonly { path: string; content: string }[]
 ): string => {
   const scnId = idManager.getScnId(fileNode.id) ?? '';
 
@@ -524,7 +543,7 @@ const serializeFile = (
 
   const nodeLines: string[] = [];
   const processNode = (wrapper: {node: CodeNode, children: any[]}, level: number) => {
-    nodeLines.push(formatNode(wrapper.node, graph, idManager, rootDir, level));
+    nodeLines.push(formatNode(wrapper.node, graph, idManager, rootDir, level, files));
     for (const childWrapper of wrapper.children) {
       processNode(childWrapper, level + 1);
     }
@@ -545,7 +564,15 @@ const serializeFile = (
  * @param rootDir - The root directory of the project (for reading source files).
  * @returns A string containing the full SCN map.
  */
-export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string => {
+export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string, files?: readonly { path: string; content: string }[]): string => {
+  // Clear and pre-populate source file cache if files are provided in-memory
+  sourceFileCache.clear();
+  if (files) {
+    for (const file of files) {
+      sourceFileCache.set(file.path, file.content);
+    }
+  }
+
   const nodesByFile = new Map<string, CodeNode[]>(); // filePath -> nodes
   const fileNodes: CodeNode[] = [];
 
@@ -570,7 +597,7 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     const symbols = nodesByFile.get(fileNode.filePath) || [];
     // Sort symbols by line number to ensure deterministic output for hierarchical processing
     symbols.sort((a,b) => a.startLine - b.startLine);
-    return serializeFile(fileNode, symbols, graph, idManager, rootDir);
+    return serializeFile(fileNode, symbols, graph, idManager, rootDir, files);
   });
 
   return scnParts.join('\n\n');
