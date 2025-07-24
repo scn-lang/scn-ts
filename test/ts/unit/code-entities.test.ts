@@ -14,7 +14,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent a class with ◇', async () => {
     project = await setupTestProject({ 'test.ts': `export class MyClass {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -23,7 +23,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent a namespace with ◇', async () => {
     project = await setupTestProject({ 'test.ts': `export namespace MyNamespace {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -32,7 +32,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
     project = await setupTestProject({ 'test.ts': `export const MyModule = { key: 'value' };` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -41,7 +41,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent an interface with {}', async () => {
     project = await setupTestProject({ 'test.ts': `export interface MyInterface {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -50,7 +50,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent an export function with + ~', async () => {
     project = await setupTestProject({ 'test.ts': `export function myFunc() {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -59,7 +59,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent a const arrow function with ~', async () => {
     project = await setupTestProject({ 'test.ts': `const myFunc = () => {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -74,7 +74,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
         myMethod() {}
       }`,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -84,7 +84,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should represent a top-level const with @', async () => {
     project = await setupTestProject({ 'test.ts': `const myVar = 123;` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -94,7 +94,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should correctly handle export default class', async () => {
     project = await setupTestProject({ 'test.ts': `export default class MyClass {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -103,7 +103,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should correctly handle export default function', async () => {
     project = await setupTestProject({ 'test.ts': `export default function myFunc() {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -112,7 +112,7 @@ describe('SCN Generation: 1.3 Code Entities', () => {
 
   it('should correctly handle export default anonymous function', async () => {
     project = await setupTestProject({ 'test.ts': `export default () => {}` });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });

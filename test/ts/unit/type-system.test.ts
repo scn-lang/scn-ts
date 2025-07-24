@@ -14,25 +14,25 @@ describe('SCN Generation: 1.4 Type System Symbols', () => {
 
   it('should represent an enum with ☰', async () => {
     project = await setupTestProject({ 'test.ts': `export enum Color { Red, Green }` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ☰ (1.1) Color');
   });
 
   it('should represent a type alias with =:', async () => {
     project = await setupTestProject({ 'test.ts': `export type UserID = string;` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ =: (1.1) UserID = string');
   });
 
   it('should represent type references in function parameters with #', async () => {
     project = await setupTestProject({ 'test.ts': `function process(id: string, value: number) {}` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('~ (1.1) process(id: #, value: #)');
   });
   
   it('should represent a function return type with :#Type', async () => {
     project = await setupTestProject({ 'test.ts': `function isActive(): boolean {}` });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('~ (1.1) isActive(): #boolean');
   });
   
@@ -41,7 +41,7 @@ describe('SCN Generation: 1.4 Type System Symbols', () => {
       interface User {}
       function getUser(): Promise<User> { return Promise.resolve({} as User); }
     `});
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('~ (1.2) getUser(): #Promise<User>');
   });
 
@@ -49,7 +49,7 @@ describe('SCN Generation: 1.4 Type System Symbols', () => {
     project = await setupTestProject({ 'test.ts': `
       function transform<T, U>(data: T[], func: (item: T) => U): U[] { return []; }
     `});
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('~ (1.1) transform(data: #, func: #): #U[]');
   });
 });

@@ -17,7 +17,7 @@ describe('SCN Generation: 1.1 General & Structural', () => {
       'a.ts': ``,
       'b.ts': ``,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -33,7 +33,7 @@ describe('SCN Generation: 1.1 General & Structural', () => {
         export class ClassB {}
       `,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -47,7 +47,7 @@ describe('SCN Generation: 1.1 General & Structural', () => {
       'a.ts': `import './b.ts';`,
       'b.ts': `console.log('side effect');`,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -66,7 +66,7 @@ describe('SCN Generation: 1.1 General & Structural', () => {
         }
       `,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });

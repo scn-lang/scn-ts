@@ -204,7 +204,7 @@ async function run() {
   const executeGeneration = async () => {
     try {
       console.error(`[SCN-TS] Analyzing project...`);
-      const scn = await generateScn(config);
+      const { scn } = await generateScn(config);
       if (output) {
         await writeFile(output, scn, 'utf-8');
         console.error(`[SCN-TS] SCN map written to ${relative(process.cwd(), output)}`);

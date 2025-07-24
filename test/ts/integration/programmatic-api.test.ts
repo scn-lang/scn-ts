@@ -31,7 +31,7 @@ describe('SCN Generation: 2. Programmatic API', () => {
         'b.ts': `export const B = 2;`,
       });
 
-      const scn = await generateScn({ root: project.projectDir, include: ['a.ts'] });
+      const { scn } = await generateScn({ root: project.projectDir, include: ['a.ts'] });
       expect(scn).toContain('§ (1) a.ts');
       expect(scn).not.toContain('b.ts');
     });
@@ -42,7 +42,7 @@ describe('SCN Generation: 2. Programmatic API', () => {
         'b.ignore.ts': `export const B = 2;`,
       });
 
-      const scn = await generateScn({
+      const { scn } = await generateScn({
         root: project.projectDir,
         include: ['**/*.ts'],
         exclude: ['**/*.ignore.ts'],
@@ -59,7 +59,7 @@ describe('SCN Generation: 2. Programmatic API', () => {
         }),
       });
 
-      const scn = await generateScn({
+      const { scn } = await generateScn({
         root: project.projectDir,
         include: ['**/*.tsx'],
         project: 'tsconfig.json',
@@ -75,7 +75,7 @@ describe('SCN Generation: 2. Programmatic API', () => {
       project = await setupTestProject({
         'a.ts': `export const A = 1;`,
       });
-      const scn = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
+      const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
       expect(scn).toBe('');
     });
 

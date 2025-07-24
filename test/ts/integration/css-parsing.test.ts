@@ -34,7 +34,7 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
         }
       `,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
     
     // The order of intent symbols is sorted alphabetically by the serializer.
     expect(scn).toContain('  ¶ (1.1) .layout-only { 📐 }');
@@ -62,7 +62,7 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
       }),
     });
     
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
 
     // File sorting is alphabetical: Button.css -> 1, Button.tsx -> 2
     const tsxScn = scn.split('\n\n').find(s => s.includes('Button.tsx'));
@@ -103,7 +103,7 @@ describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
       }),
     });
     
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
     
     // File sorting is alphabetical: App.css -> 1, App.tsx -> 2
     const tsxScn = scn.split('\n\n').find(s => s.includes('App.tsx'));

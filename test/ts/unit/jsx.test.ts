@@ -20,7 +20,7 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
         }
       `,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
     expect(scn).toContain('+ ◇ (1.1) Button { props: { label:#, onClick:# } }');
   });
   
@@ -32,7 +32,7 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
         }
       `,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
     const divLine = scn.split('\n').find(line => line.includes('⛶ (1.2) div'));
     expect(divLine).toBeDefined();
     expect(divLine!).toContain('id:#main');
@@ -51,7 +51,7 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
         }
       `,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
     const lines = scn.split('\n');
     const mainIndex = lines.findIndex(l => l.includes('⛶ (1.2) main'));
     const h1Index = lines.findIndex(l => l.includes('⛶ (1.3) h1'));
@@ -76,7 +76,7 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
       `,
       'another.ts': 'export const c = 3;',
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     const modScn = scn.split('\n\n').find(s => s.includes('mod.ts'));
     // Files: another.ts (1), mod.ts (2)
     expect(modScn).toContain('§ (2) mod.ts\n  -> (1.0)');
@@ -104,7 +104,7 @@ describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
         }
       `
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
     // Files: main.ts (1), util.ts (2)
     // Entities in util.ts: val (2.1), func (2.2), MyClass (2.3)

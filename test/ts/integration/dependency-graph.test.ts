@@ -17,7 +17,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'util.ts': `export function helper() {}`,
       'main.ts': `import { helper } from './util'; function main() { helper(); }`,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -36,7 +36,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'service.ts': `import { setting } from './config'; export const value = setting;`,
       'main.ts': `import { value } from './service'; console.log(value);`,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -54,7 +54,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
       'b.ts': `import { C } from './c'; export const B = C;`,
       'a.ts': `import { B } from './b'; function run() { console.log(B); }`,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -84,7 +84,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
         }
       `,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });
@@ -109,7 +109,7 @@ describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
         }
       `,
     });
-    const scn = await generateScn({
+    const { scn } = await generateScn({
       root: project.projectDir,
       include: [`**/*.ts`],
     });

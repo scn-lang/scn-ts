@@ -16,7 +16,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     project = await setupTestProject({
       'test.ts': `export class MyClass { public myMethod() {} }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.2) myMethod()');
   });
 
@@ -24,7 +24,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     project = await setupTestProject({
       'test.ts': `export class MyClass { private myMethod() {} }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('- ~ (1.2) myMethod()');
   });
 
@@ -32,7 +32,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     project = await setupTestProject({
       'test.ts': `export class MyClass { myMethod() {} }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.2) myMethod()');
   });
 
@@ -43,7 +43,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
         export class MyClass { async myMethod() {} }
       `,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.1) myFunc() ...');
     expect(scn).toContain('+ ~ (1.3) myMethod() ...');
   });
@@ -52,7 +52,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     project = await setupTestProject({
       'test.ts': `export function myFunc() { throw new Error('test'); }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.1) myFunc() !');
   });
 
@@ -60,7 +60,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
     project = await setupTestProject({
       'test.ts': `export async function myFunc() { throw new Error('test'); }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.1) myFunc() ... !');
   });
   
@@ -70,7 +70,7 @@ describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
      project = await setupTestProject({
       'test.ts': `export function add(a: number, b: number): number { return a + b; }`,
     });
-    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const { scn } = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
     expect(scn).toContain('+ ~ (1.1) add(a: #, b: #): #number o');
   });
 });

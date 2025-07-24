@@ -6,6 +6,9 @@ import type {
   CodeNodeType,
 } from "repograph";
 
+// Declare window for Node.js environment compatibility
+declare const window: any;
+
 // Allow for 'contains' and 'references' edges which might be produced by repograph
 // but not present in a minimal type definition.
 type CodeEdge = Omit<RepographEdge, 'type'> & {
@@ -95,18 +98,37 @@ const getSourceContent = (
   }
 
   // Fallback to filesystem for Node.js environment
-  // Use eval to prevent bundlers from including 'fs' and 'path' in browser builds
   if (typeof window === 'undefined') {
     try {
-      const fs = eval("require('fs')");
-      const path = eval("require('path')");
-      const fullPath = rootDir ? path.join(rootDir, filePath) : filePath;
-      if (sourceFileCache.has(fullPath)) {
-        return sourceFileCache.get(fullPath)!;
+      // Use dynamic import for Node.js modules
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Try multiple path combinations to handle both absolute and relative paths
+      const pathsToTry = [
+        rootDir ? path.join(rootDir, filePath) : null,
+        rootDir ? path.resolve(rootDir, filePath) : null,
+        filePath
+      ].filter(Boolean);
+      
+      for (const tryPath of pathsToTry) {
+        try {
+          if (sourceFileCache.has(tryPath)) {
+            return sourceFileCache.get(tryPath)!;
+          }
+          const content = fs.readFileSync(tryPath, 'utf-8');
+          sourceFileCache.set(filePath, content);
+          sourceFileCache.set(tryPath, content);
+          return content;
+        } catch (e) {
+          // Try next path
+          continue;
+        }
       }
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      sourceFileCache.set(fullPath, content);
-      return content;
+      
+      // If all paths failed
+      sourceFileCache.set(filePath, ''); // cache miss
+      return '';
     } catch (e) {
       sourceFileCache.set(filePath, ''); // cache miss
       return '';
@@ -166,9 +188,7 @@ const getNodeSymbol = (node: CodeNode): ScnSymbol => {
   return ENTITY_TYPE_TO_SYMBOL[node.type] ?? '?';
 };
 
-const getQualifiers = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): { access?: '+' | '-'; others: QualifierSymbol[] } => {
-  const access = getVisibilitySymbol(node, rootDir, files);
-  
+const getQualifiers = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): { others: QualifierSymbol[] } => {
   const others: QualifierSymbol[] = [];
   
   // Check for async
@@ -183,7 +203,7 @@ const getQualifiers = (node: CodeNode, rootDir?: string, files?: readonly { path
   const isPure = node.isPure || isPureFunction(node, rootDir, files);
   if (isPure) others.push('o');
   
-  return { access, others };
+  return { others };
 };
 
 const isPureFunction = (node: CodeNode, rootDir?: string, files?: readonly { path: string; content: string }[]): boolean => {
@@ -371,7 +391,8 @@ const formatSignature = (node: CodeNode, rootDir?: string, files?: readonly { pa
 
 const formatNode = (node: CodeNode, graph: RankedCodeGraph, idManager: ScnIdManager, rootDir?: string, level = 0, files?: readonly { path: string; content: string }[]): string => {
   const symbol = getNodeSymbol(node);
-  const { access, others } = getQualifiers(node, rootDir, files);
+  const access = getVisibilitySymbol(node, rootDir, files);
+  const { others } = getQualifiers(node, rootDir, files);
   const signature = formatSignature(node, rootDir, files);
   const scnId = idManager.getScnId(node.id);
   const id = scnId ? `(${scnId})` : '';
