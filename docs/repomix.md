@@ -3,7 +3,19 @@
 repograph/
   src/
     index.ts
-  README.md
+  web-demo/
+    src/
+      App.css
+      App.tsx
+      main.tsx
+    index.html
+    package.json
+    tsconfig.json
+    tsconfig.node.json
+    vite.config.ts
+  package.json
+  tsconfig.json
+  tsup.config.ts
 src/
   cli.ts
   index.ts
@@ -16,7 +28,7 @@ tsup.config.ts
 # Files
 
 ## File: repograph/src/index.ts
-````typescript
+```typescript
 #!/usr/bin/env bun
 
 import { logger } from './utils/logger.util';
@@ -85,7 +97,7 @@ const copyWasmFiles = async (destination: string) => {
 
     // Source is relative to the running script (dist/index.js)
     const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
-    
+
     await fs.mkdir(destination, { recursive: true });
 
     const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
@@ -161,113 +173,62 @@ Output Formatting:
       process.exit(0);
     }
 
-    // We need a mutable version of the options to build it from arguments.
-    const options: {
-      root?: string;
-      output?: string;
-      include?: readonly string[];
-      ignore?: readonly string[];
-      noGitignore?: boolean;
-      maxWorkers?: number;
-      rankingStrategy?: 'pagerank' | 'git-changes';
-      logLevel?: IRepoGraphOptions['logLevel'];
-      rendererOptions?: IRepoGraphOptions['rendererOptions'];
-    } = {};
+    const options: any = {};
     const includePatterns: string[] = [];
     const ignorePatterns: string[] = [];
-    // We need a mutable version of rendererOptions to build from CLI args
-    const rendererOptions: {
-      customHeader?: string;
-      includeHeader?: boolean;
-      includeOverview?: boolean;
-      includeMermaidGraph?: boolean;
-      includeFileList?: boolean;
-      topFileCount?: number;
-      includeSymbolDetails?: boolean;
-      fileSectionSeparator?: string;
-      symbolDetailOptions?: {
-        includeRelations?: boolean;
-        includeLineNumber?: boolean;
-        includeCodeSnippet?: boolean;
-        maxRelationsToShow?: number;
-      };
-    } = {};
+    const rendererOptions: any = {};
+    const symbolDetailOptions: any = {};
+
+    const argConfig: Record<string, (val?: string) => void> = {
+      '--output': val => options.output = val,
+      '--include': val => val && includePatterns.push(val),
+      '--ignore': val => val && ignorePatterns.push(val),
+      '--no-gitignore': () => options.noGitignore = true,
+      '--ranking-strategy': val => options.rankingStrategy = val as any,
+      '--max-workers': val => options.maxWorkers = parseInt(val!, 10),
+      '--log-level': val => options.logLevel = val as any,
+      '--no-header': () => rendererOptions.includeHeader = false,
+      '--no-overview': () => rendererOptions.includeOverview = false,
+      '--no-mermaid': () => rendererOptions.includeMermaidGraph = false,
+      '--no-file-list': () => rendererOptions.includeFileList = false,
+      '--no-symbol-details': () => rendererOptions.includeSymbolDetails = false,
+      '--top-file-count': val => rendererOptions.topFileCount = parseInt(val!, 10),
+      '--file-section-separator': val => rendererOptions.fileSectionSeparator = val,
+      '--no-symbol-relations': () => symbolDetailOptions.includeRelations = false,
+      '--no-symbol-line-numbers': () => symbolDetailOptions.includeLineNumber = false,
+      '--no-symbol-snippets': () => symbolDetailOptions.includeCodeSnippet = false,
+      '--max-relations-to-show': val => symbolDetailOptions.maxRelationsToShow = parseInt(val!, 10),
+    };
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (!arg) {
-        continue;
-      }
-      switch (arg) {
-        case '--output':
-          options.output = args[++i];
-          break;
-        case '--include':
-          includePatterns.push(args[++i] as string);
-          break;
-        case '--ignore':
-          ignorePatterns.push(args[++i] as string);
-          break;
-        case '--no-gitignore':
-          options.noGitignore = true;
-          break;
-        case '--ranking-strategy':
-          options.rankingStrategy = args[++i] as IRepoGraphOptions['rankingStrategy'];
-          break;
-        case '--max-workers':
-          options.maxWorkers = parseInt(args[++i] as string, 10);
-          break;
-        case '--log-level':
-          options.logLevel = args[++i] as IRepoGraphOptions['logLevel'];
-          break;
-        // --- Renderer Options ---
-        case '--no-header':
-          rendererOptions.includeHeader = false;
-          break;
-        case '--no-overview':
-          rendererOptions.includeOverview = false;
-          break;
-        case '--no-mermaid':
-          rendererOptions.includeMermaidGraph = false;
-          break;
-        case '--no-file-list':
-          rendererOptions.includeFileList = false;
-          break;
-        case '--no-symbol-details':
-          rendererOptions.includeSymbolDetails = false;
-          break;
-        case '--top-file-count':
-          rendererOptions.topFileCount = parseInt(args[++i] as string, 10);
-          break;
-        case '--file-section-separator':
-          rendererOptions.fileSectionSeparator = args[++i];
-          break;
-        case '--no-symbol-relations':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeRelations: false };
-          break;
-        case '--no-symbol-line-numbers':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeLineNumber: false };
-          break;
-        case '--no-symbol-snippets':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), includeCodeSnippet: false };
-          break;
-        case '--max-relations-to-show':
-          rendererOptions.symbolDetailOptions = { ...(rendererOptions.symbolDetailOptions || {}), maxRelationsToShow: parseInt(args[++i] as string, 10) };
-          break;
-        default:
-          if (!arg.startsWith('-')) {
-            options.root = arg;
-          }
-          break;
+      if (!arg) continue;
+
+      const handler = argConfig[arg];
+      if (handler) {
+        // Check if handler takes a value
+        if (handler.length === 1) {
+          handler(args[++i]);
+        } else {
+          handler();
+        }
+      } else if (!arg.startsWith('-')) {
+        options.root = arg;
       }
     }
 
     if (includePatterns.length > 0) {
       options.include = includePatterns;
     }
+    
     if (ignorePatterns.length > 0) {
       options.ignore = ignorePatterns;
     }
+    
+    if (Object.keys(symbolDetailOptions).length > 0) {
+      rendererOptions.symbolDetailOptions = symbolDetailOptions;
+    }
+    
     if (Object.keys(rendererOptions).length > 0) {
       options.rendererOptions = rendererOptions;
     }
@@ -277,7 +238,8 @@ Output Formatting:
     logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
 
     try {
-      await executeGenerateMap(options);
+      // Cast to the correct type for execution
+      await executeGenerateMap(options as IRepoGraphOptions);
       const relativePath = path.relative(process.cwd(), finalOutput);
       logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
     } catch (error: unknown) {
@@ -293,425 +255,1104 @@ Output Formatting:
     process.exit(1);
   });
 }
-````
-
-## File: repograph/README.md
-````markdown
-<div align="center">
-
-<img src="https://raw.githubusercontent.com/relaycoder/repograph/main/assets/logo.svg" alt="RepoGraph Logo" width="150"/>
-
-# RepoGraph
-
-### Your Codebase, Visualized & Understood.
-
-**Generate rich, semantic, and interactive codemaps to navigate, analyze, and master any repository, in any environment.**
-
-[![NPM Version](https://img.shields.io/npm/v/repograph?style=for-the-badge&color=CB3837)](https://www.npmjs.com/package/repograph)
-[![License](https://img.shields.io/npm/l/repograph?style=for-the-badge&color=blue)](./LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/relaycoder/repograph/ci.yml?branch=main&style=for-the-badge)](https://github.com/relaycoder/repograph/actions)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge)](http://makeapullrequest.com)
-
-</div>
-
----
-
-Ever felt lost in a new codebase? Struggled to see the big picture or find the most critical files? RepoGraph is your solution. It's a powerful **isomorphic** tool and library that analyzes your code, builds a dependency graph, ranks key files and symbols, and generates a beautiful, detailed Markdown report.
-
-Whether you're onboarding new engineers, planning a large-scale refactor, or even providing context to an AI, RepoGraph gives you the map you need to navigate with confidence—**both in your terminal and in the browser**.
-
-## ✨ Key Features & Benefits
-
-| Feature                               | Benefit                                                                                                                                                    |
-| :------------------------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **🧠 Multi-Language Semantic Analysis** | Uses **Tree-sitter** to parse your code with deep understanding, identifying not just files, but classes, functions, methods, and their relationships.     |
-| **⚡ Parallel Processing**              | Leverages **worker threads** to analyze files in parallel, dramatically speeding up analysis for large codebases with configurable worker pools.        |
-| **⭐ Intelligent Ranking Algorithms**   | Go beyond file names. Rank code by importance using **PageRank** (centrality) or **Git Hot-Spots** (change frequency) to immediately find what matters.       |
-| **🎯 Rich Symbol Qualifiers**           | Extract deep metadata including visibility (`public`/`private`), `async`/`static` status, purity, exception handling, parameter types, and return types. |
-| **🌐 Browser & Node.js Support**       | Run analysis anywhere. Use the powerful CLI in your terminal or integrate the library directly into your web-based IDE or analysis tools.                 |
-| **🎨 Comprehensive Markdown Reports**  | Generates a `repograph.md` file with a project overview, dependency graphs, ranked file lists, and detailed symbol breakdowns.                              |
-| **🧩 Composable Pipeline API**         | A fully functional, composable API allows you to replace or extend any part of the pipeline: **Discover → Analyze → Rank → Render**.                         |
-| **⚙️ Highly Configurable CLI**          | Fine-tune your analysis and output with a rich set of command-line flags to include/ignore files, customize the report, and more.                            |
-
-## 🚀 Why Use RepoGraph?
-
--   **Accelerate Onboarding:** Give new developers a guided tour of the codebase, highlighting the most important entry points and modules.
--   **Master Code Navigation:** Understand how components are interconnected, making it easier to trace logic and predict the impact of changes.
--   **Prioritize Refactoring:** Identify highly-central but frequently changed files—prime candidates for refactoring and stabilization.
--   **Enhance AI Context:** Feed a structured, ranked, and semantically-rich overview of your codebase to LLMs for vastly improved code generation, analysis, and Q&A.
--   **Build In-Browser Tools:** Integrate RepoGraph into your web applications to create live code explorers, visualizers, or educational platforms without a server-side component.
--   **Streamline Architectural Reviews:** Get a high-level, data-driven view of your system's architecture to facilitate design discussions.
-
-## 📸 Gallery: Example Output
-
-Imagine running `repograph` on a small project. Here's a glimpse of the beautiful and insightful Markdown file it produces.
-
----
-
-# RepoGraph
-
-_Generated by RepoGraph on 2025-07-20T06:21:00.000Z_
-
-## 🚀 Project Overview
-
-This repository contains 25 nodes (5 files).
-
-### Module Dependency Graph
-
-```mermaid
-graph TD
-    src/index.ts["index.ts"] --> src/composer.ts["composer.ts"]
-    src/index.ts["index.ts"] --> src/high-level.ts["high-level.ts"]
-    src/high-level.ts["high-level.ts"] --> src/composer.ts["composer.ts"]
-    src/composer.ts["composer.ts"] --> src/pipeline/discover.ts["discover.ts"]
-    src/composer.ts["composer.ts"] --> src/pipeline/analyze.ts["analyze.ts"]
-    src/composer.ts["composer.ts"] --> src/pipeline/rank.ts["rank.ts"]
-    src/composer.ts["composer.ts"] --> src/pipeline/render.ts["render.ts"]
 ```
 
-### Top 5 Most Important Files
+## File: repograph/web-demo/src/App.css
+```css
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
 
-| Rank | File                      | Description                       |
-| :--- | :------------------------ | :-------------------------------- |
-| 1    | `src/pipeline/analyze.ts` | Key module in the architecture.   |
-| 2    | `src/index.ts`            | Key module in the architecture.   |
-| 3    | `src/composer.ts`         | Key module in the architecture.   |
-| 4    | `src/types.ts`            | Key module in the architecture.   |
-| 5    | `src/pipeline/render.ts`  | Key module in the architecture.   |
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
 
----
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
-## 📂 File & Symbol Breakdown
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
 
-### [`src/pipeline/analyze.ts`](./src/pipeline/analyze.ts)
+#root {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+  width: 100%;
+}
 
--   **`function createTreeSitterAnalyzer`** - _L257_
-    ```typescript
-    export const createTreeSitterAnalyzer = (): Analyzer => {
-    ```
--   **`function processFileDefinitions`** (throws) - _L291_
-    ```typescript
-    function processFileDefinitions(
-    ```
--   **`function findEnclosingSymbolId`** (calls `parent`) - _L461_
-    ```typescript
-    function findEnclosingSymbolId(startNode: TSNode, file: FileContent, nodes: ReadonlyMap<string, CodeNode>): string | null {
-    ```
+h1 {
+  font-size: 2.2em;
+  line-height: 1.1;
+  margin-block-start: 0;
+  margin-bottom: 1rem;
+  text-align: center;
+}
 
----
+.main-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: calc(100vh - 6rem);
+}
 
-## 🔬 Rich Semantic Analysis
+.config-panel {
+  background-color: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1rem;
+  flex-shrink: 0;
+}
 
-RepoGraph extracts deep semantic details from your code, making it perfect for integration with advanced analysis and AI tools.
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
 
-### Symbol Qualifiers Extracted
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9em;
+}
 
--   **Visibility:** `public`, `private`, `protected`, `internal`, `default`
--   **Modifiers:** `async`, `static`
--   **Behavior:** `canThrow` (detects exceptions), `isPure` (detects side-effect-free functions)
--   **Type System:** Parameter names and types, return types
+.config-item input[type="number"] {
+  width: 60px;
+  padding: 0.25rem;
+  background-color: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #d4d4d4;
+}
 
-### Example: TypeScript Analysis
+.config-item input[type="checkbox"] {
+  accent-color: #646cff;
+}
 
-Given this code:
+.config-info {
+  grid-column: 1 / -1;
+  padding: 0.75rem;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  font-size: 0.9em;
+  border-left: 3px solid #646cff;
+}
 
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.primary-button {
+  background-color: #646cff;
+  color: white;
+  border: none;
+}
+
+.primary-button:hover:not(:disabled) {
+  background-color: #5a5fcf;
+}
+
+.secondary-button {
+  background-color: #2a2a2a;
+  border: 1px solid #555;
+}
+
+.secondary-button:hover:not(:disabled) {
+  border-color: #777;
+}
+
+.current-metrics {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #2a2a2a;
+  border-radius: 6px;
+}
+
+.current-metrics h4 {
+  margin: 0 0 0.5rem 0;
+  color: #60a5fa;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  font-size: 0.85em;
+  font-family: monospace;
+}
+
+.container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.bottom-panels {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+  height: 300px;
+  flex-shrink: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+textarea {
+  width: 100%;
+  height: 100%;
+  resize: none;
+  background-color: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #d4d4d4;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.output-panel, .logs-panel {
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+}
+
+.logs-panel {
+    height: 100%;
+    flex-shrink: 0;
+}
+
+.log-entry {
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8em;
+}
+
+.log-timestamp {
+  color: #888;
+  flex-shrink: 0;
+}
+
+.log-level {
+  flex-shrink: 0;
+  font-weight: bold;
+}
+
+.log-message {
+  flex: 1;
+}
+
+.log-error { color: #f87171; background-color: #450a0a; }
+.log-warn { color: #facc15; background-color: #422006; }
+.log-info { color: #60a5fa; }
+.log-debug { color: #888; }
+
+.metrics-history {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8em;
+  font-family: monospace;
+}
+
+.metrics-table th,
+.metrics-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #444;
+}
+
+.metrics-table th {
+  background-color: #2a2a2a;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+}
+
+.metrics-table tr.latest {
+  background-color: #2a2a2a;
+  font-weight: bold;
+}
+
+.metrics-table tr:hover {
+  background-color: #333;
+}
+
+pre {
+    background-color: #2d2d2d !important;
+    border-radius: 4px;
+    padding: 1em !important;
+}
+```
+
+## File: repograph/web-demo/src/App.tsx
 ```typescript
-export class UserService {
-  public async getUser(id: string): Promise<User> {
-    if (!id) throw new Error('ID is required');
-    return await this.repository.findById(id);
-  }
+import { useState, useEffect, useCallback, useRef, type FC } from 'react';
 
-  private static validateEmail(email: string): boolean {
-    return email.includes('@');
+// Declare global TreeSitterModule for TypeScript
+declare global {
+  interface Window {
+    TreeSitterModule?: {
+      locateFile?: (path: string) => string;
+    };
+  }
+}
+import {
+  initializeParser,
+  analyzeProject,
+  createMarkdownRenderer,
+  logger,
+  type FileContent,
+  type LogLevel,
+} from 'repograph';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
+
+const defaultInput = JSON.stringify(
+  [
+    {
+      path: 'src/components/Button.tsx',
+      content: `import React from 'react';\nimport { styled } from '../styles';\nimport { useApi } from '../hooks/useApi';\n\ninterface ButtonProps {\n  onClick?: () => void;\n  children: React.ReactNode;\n  variant?: 'primary' | 'secondary';\n}\n\nexport const Button: React.FC<ButtonProps> = ({ onClick, children, variant = 'primary' }) => {\n  const { isLoading } = useApi();\n  \n  return (\n    <StyledButton \n      onClick={onClick} \n      disabled={isLoading}\n      className={\`btn btn-\${variant}\`}\n    >\n      {children}\n    </StyledButton>\n  );\n};\n\nconst StyledButton = styled.button\`\n  padding: 0.5rem 1rem;\n  border-radius: 4px;\n  border: none;\n  cursor: pointer;\n  \n  &.btn-primary {\n    background-color: #007bff;\n    color: white;\n  }\n  \n  &.btn-secondary {\n    background-color: #6c757d;\n    color: white;\n  }\n  \n  &:disabled {\n    opacity: 0.6;\n    cursor: not-allowed;\n  }\n\`;`,
+    },
+    {
+      path: 'src/styles.ts',
+      content: `import styled from 'styled-components';\n\nexport { styled };\n\nexport const theme = {\n  colors: {\n    primary: '#007bff',\n    secondary: '#6c757d',\n    success: '#28a745',\n    danger: '#dc3545',\n    warning: '#ffc107',\n    info: '#17a2b8',\n  },\n  spacing: {\n    xs: '0.25rem',\n    sm: '0.5rem',\n    md: '1rem',\n    lg: '1.5rem',\n    xl: '2rem',\n  },\n  breakpoints: {\n    sm: '576px',\n    md: '768px',\n    lg: '992px',\n    xl: '1200px',\n  },\n};\n\nexport type Theme = typeof theme;`,
+    },
+    {
+      path: 'src/api/client.ts',
+      content: `export interface ApiResponse<T> {\n  data: T;\n  status: number;\n  message?: string;\n}\n\nexport interface User {\n  id: number;\n  name: string;\n  email: string;\n  role: 'admin' | 'user';\n}\n\nexport class ApiClient {\n  private baseUrl: string;\n  private token?: string;\n\n  constructor(baseUrl: string = '/api') {\n    this.baseUrl = baseUrl;\n  }\n\n  setToken(token: string): void {\n    this.token = token;\n  }\n\n  private async request<T>(\n    endpoint: string,\n    options: RequestInit = {}\n  ): Promise<ApiResponse<T>> {\n    const url = \`\${this.baseUrl}\${endpoint}\`;\n    const headers = {\n      'Content-Type': 'application/json',\n      ...(this.token && { Authorization: \`Bearer \${this.token}\` }),\n      ...options.headers,\n    };\n\n    const response = await fetch(url, {\n      ...options,\n      headers,\n    });\n\n    const data = await response.json();\n    \n    return {\n      data,\n      status: response.status,\n      message: data.message,\n    };\n  }\n\n  async getUsers(): Promise<ApiResponse<User[]>> {\n    return this.request<User[]>('/users');\n  }\n\n  async getUser(id: number): Promise<ApiResponse<User>> {\n    return this.request<User>(\`/users/\${id}\`);\n  }\n\n  async createUser(user: Omit<User, 'id'>): Promise<ApiResponse<User>> {\n    return this.request<User>('/users', {\n      method: 'POST',\n      body: JSON.stringify(user),\n    });\n  }\n\n  async updateUser(id: number, user: Partial<User>): Promise<ApiResponse<User>> {\n    return this.request<User>(\`/users/\${id}\`, {\n      method: 'PUT',\n      body: JSON.stringify(user),\n    });\n  }\n\n  async deleteUser(id: number): Promise<ApiResponse<void>> {\n    return this.request<void>(\`/users/\${id}\`, {\n      method: 'DELETE',\n    });\n  }\n}`
+    },
+    {
+      path: 'src/hooks/useApi.ts',
+      content: `import { useState, useEffect, useCallback } from 'react';\nimport { ApiClient } from '../api/client';\n\nconst apiClient = new ApiClient();\n\nexport interface UseApiState<T> {\n  data: T | null;\n  isLoading: boolean;\n  error: string | null;\n}\n\nexport function useApi<T>() {\n  const [state, setState] = useState<UseApiState<T>>({\n    data: null,\n    isLoading: false,\n    error: null,\n  });\n\n  const execute = useCallback(async (apiCall: () => Promise<T>) => {\n    setState(prev => ({ ...prev, isLoading: true, error: null }));\n    \n    try {\n      const result = await apiCall();\n      setState({ data: result, isLoading: false, error: null });\n      return result;\n    } catch (error) {\n      const errorMessage = error instanceof Error ? error.message : 'An error occurred';\n      setState({ data: null, isLoading: false, error: errorMessage });\n      throw error;\n    }\n  }, []);\n\n  return {\n    ...state,\n    execute,\n    client: apiClient,\n  };\n}`
+    },
+    {
+      path: 'src/components/UserList.tsx',
+      content: `import React, { useEffect } from 'react';\nimport { Button } from './Button';\nimport { useApi } from '../hooks/useApi';\nimport type { User } from '../api/client';\n\ninterface UserListProps {\n  onUserSelect?: (user: User) => void;\n}\n\nexport const UserList: React.FC<UserListProps> = ({ onUserSelect }) => {\n  const { data: users, isLoading, error, execute, client } = useApi<User[]>();\n\n  useEffect(() => {\n    loadUsers();\n  }, []);\n\n  const loadUsers = async () => {\n    try {\n      const response = await execute(() => client.getUsers());\n      return response.data;\n    } catch (error) {\n      console.error('Failed to load users:', error);\n    }\n  };\n\n  const handleDeleteUser = async (userId: number) => {\n    if (!confirm('Are you sure you want to delete this user?')) return;\n    \n    try {\n      await execute(() => client.deleteUser(userId));\n      await loadUsers(); // Refresh the list\n    } catch (error) {\n      console.error('Failed to delete user:', error);\n    }\n  };\n\n  if (isLoading) {\n    return <div className=\"loading\">Loading users...</div>;\n  }\n\n  if (error) {\n    return (\n      <div className=\"error\">\n        <p>Error: {error}</p>\n        <Button onClick={loadUsers}>Retry</Button>\n      </div>\n    );\n  }\n\n  return (\n    <div className=\"user-list\">\n      <div className=\"user-list-header\">\n        <h2>Users</h2>\n        <Button onClick={loadUsers}>Refresh</Button>\n      </div>\n      \n      {users && users.length > 0 ? (\n        <ul className=\"users\">\n          {users.map(user => (\n            <li key={user.id} className=\"user-item\">\n              <div className=\"user-info\">\n                <h3>{user.name}</h3>\n                <p>{user.email}</p>\n                <span className={\`role role-\${user.role}\`}>{user.role}</span>\n              </div>\n              <div className=\"user-actions\">\n                <Button \n                  variant=\"secondary\" \n                  onClick={() => onUserSelect?.(user)}\n                >\n                  Edit\n                </Button>\n                <Button \n                  variant=\"secondary\" \n                  onClick={() => handleDeleteUser(user.id)}\n                >\n                  Delete\n                </Button>\n              </div>\n            </li>\n          ))}\n        </ul>\n      ) : (\n        <p>No users found.</p>\n      )}\n    </div>\n  );\n};`
+    },
+    {
+      path: 'src/App.tsx',
+      content: `import React, { useState } from 'react';\nimport { Button } from './components/Button';\nimport { UserList } from './components/UserList';\nimport type { User } from './api/client';\nimport './App.css';\n\nexport const App: React.FC = () => {\n  const [selectedUser, setSelectedUser] = useState<User | null>(null);\n  const [showUserList, setShowUserList] = useState(true);\n\n  const handleUserSelect = (user: User) => {\n    setSelectedUser(user);\n    setShowUserList(false);\n  };\n\n  const handleBackToList = () => {\n    setSelectedUser(null);\n    setShowUserList(true);\n  };\n\n  return (\n    <div className=\"app\">\n      <header className=\"app-header\">\n        <h1>User Management System</h1>\n        <nav>\n          <Button \n            variant={showUserList ? 'primary' : 'secondary'}\n            onClick={() => setShowUserList(true)}\n          >\n            Users\n          </Button>\n          <Button \n            variant={!showUserList ? 'primary' : 'secondary'}\n            onClick={() => setShowUserList(false)}\n          >\n            Settings\n          </Button>\n        </nav>\n      </header>\n\n      <main className=\"app-main\">\n        {showUserList ? (\n          <UserList onUserSelect={handleUserSelect} />\n        ) : (\n          <div className=\"settings\">\n            <h2>Settings</h2>\n            <p>Settings panel coming soon...</p>\n            <Button onClick={handleBackToList}>Back to Users</Button>\n          </div>\n        )}\n      </main>\n\n      <footer className=\"app-footer\">\n        <p>&copy; 2024 User Management System</p>\n      </footer>\n    </div>\n  );\n};`
+    }
+  ],
+  null,
+  2
+);
+
+type LogEntry = {
+  level: LogLevel | 'log';
+  args: any[];
+  timestamp: number;
+}
+
+type PerformanceMetrics = {
+  startTime: number;
+  endTime: number;
+  duration: number;
+  filesProcessed: number;
+  nodesFound: number;
+  edgesFound: number;
+  maxWorkers: number;
+  workerMode: 'sequential' | 'worker' | 'web-worker';
+}
+
+type WorkerConfig = {
+  maxWorkers: number;
+  stressTestEnabled: boolean;
+  stressTestMultiplier: number;
+}
+
+const MarkdownRenderer: FC<{ children: string }> = ({ children }) => {
+  return (
+    <ReactMarkdown
+      children={children}
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code({ node, inline, className, children, ...props }: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          return !inline && match ? (
+            <SyntaxHighlighter
+              {...props}
+              children={String(children).replace(/\n$/, '')}
+              style={vscDarkPlus as any}
+              language={match[1]}
+              PreTag="div"
+            />
+          ) : (
+            <code {...props} className={className}>
+              {children}
+            </code>
+          );
+        },
+      }}
+    />
+  );
+};
+
+
+function App() {
+  const [input, setInput] = useState(defaultInput);
+  const [output, setOutput] = useState('');
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [workerConfig, setWorkerConfig] = useState<WorkerConfig>({
+    maxWorkers: 1,
+    stressTestEnabled: false,
+    stressTestMultiplier: 1,
+  });
+  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics[]>([]);
+  const [currentMetrics, setCurrentMetrics] = useState<PerformanceMetrics | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  useEffect(() => {
+    logger.setLevel('debug');
+
+    const originalConsole = { ...console };
+    const intercept = (level: LogLevel | 'log', ...args: any[]) => {
+      (originalConsole as any)[level](...args);
+      setLogs(prev => [...prev, { level, args, timestamp: Date.now() }]);
+    };
+
+    console.log = (...args) => intercept('log', ...args);
+    console.info = (...args) => intercept('info', ...args);
+    console.warn = (...args) => intercept('warn', ...args);
+    console.error = (...args) => intercept('error', ...args);
+    console.debug = (...args) => intercept('debug', ...args);
+
+    return () => {
+      Object.assign(console, originalConsole);
+    };
+  }, []);
+
+  const handleAnalyze = useCallback(async () => {
+    // Cancel any ongoing analysis
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
+    setIsAnalyzing(true);
+    setOutput('');
+    setLogs([]);
+    
+    const startTime = performance.now();
+    console.info('Starting analysis...', { workerConfig });
+
+    try {
+      let files: FileContent[] = JSON.parse(input);
+      if (!Array.isArray(files) || !files.every(f => f.path && typeof f.content === 'string')) {
+          throw new Error('Invalid input format. Must be an array of {path: string, content: string}');
+      }
+
+      // Apply stress test multiplier if enabled
+      if (workerConfig.stressTestEnabled && workerConfig.stressTestMultiplier > 1) {
+        const originalFiles = [...files];
+        files = [];
+        for (let i = 0; i < workerConfig.stressTestMultiplier; i++) {
+          const multipliedFiles = originalFiles.map(f => ({
+            ...f,
+            path: `stress-${i}/${f.path}`,
+          }));
+          files.push(...multipliedFiles);
+        }
+        console.info(`Stress test enabled: multiplied ${originalFiles.length} files by ${workerConfig.stressTestMultiplier} = ${files.length} total files`);
+      }
+      
+      if (signal.aborted) throw new Error('Analysis cancelled');
+      
+      console.info('Initializing parser...');
+      await initializeParser({ wasmBaseUrl: '/wasm/' });
+      console.info('Parser initialized.');
+
+      if (signal.aborted) throw new Error('Analysis cancelled');
+
+      const maxWorkers = workerConfig.maxWorkers;
+      const workerMode = maxWorkers > 1 ? 'worker' : 'sequential';
+
+      console.info(`Analyzing ${files.length} files with ${maxWorkers} workers (mode: ${workerMode})...`);
+      
+      const analysisStartTime = performance.now();
+      const rankedGraph = await analyzeProject({
+        files,
+        rankingStrategy: 'pagerank',
+        maxWorkers,
+      });
+      const analysisEndTime = performance.now();
+      
+      if (signal.aborted) throw new Error('Analysis cancelled');
+      
+      console.info(`Analysis complete. Found ${rankedGraph.nodes.size} nodes, ${rankedGraph.edges.length} edges.`);
+
+      console.info('Rendering output...');
+      const renderer = createMarkdownRenderer();
+      const markdown = renderer(rankedGraph, {
+        includeMermaidGraph: true,
+      });
+      setOutput(markdown);
+      console.info('Render complete.');
+
+      const endTime = performance.now();
+      const metrics: PerformanceMetrics = {
+        startTime,
+        endTime,
+        duration: endTime - startTime,
+        filesProcessed: files.length,
+        nodesFound: rankedGraph.nodes.size,
+        edgesFound: rankedGraph.edges.length,
+        maxWorkers,
+        workerMode,
+      };
+      
+      setCurrentMetrics(metrics);
+      setPerformanceMetrics(prev => [...prev, metrics]);
+      
+      console.info('Performance metrics:', {
+        totalDuration: `${metrics.duration.toFixed(2)}ms`,
+        analysisDuration: `${(analysisEndTime - analysisStartTime).toFixed(2)}ms`,
+        filesPerSecond: (files.length / (metrics.duration / 1000)).toFixed(2),
+        nodesPerSecond: (rankedGraph.nodes.size / (metrics.duration / 1000)).toFixed(2),
+      });
+
+    } catch (e: any) {
+      if (e.message === 'Analysis cancelled') {
+        console.warn('Analysis was cancelled');
+        setOutput(`# Analysis Cancelled\n\nThe analysis was cancelled by the user.`);
+      } else {
+        console.error('Analysis failed:', e.message, e);
+        setOutput(`# Analysis Failed\n\n**Error:**\n\`\`\`\n${e.stack || e.message}\n\`\`\``);
+      }
+    } finally {
+      setIsAnalyzing(false);
+      abortControllerRef.current = null;
+    }
+  }, [input, workerConfig]);
+
+  const handleCancel = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  }, []);
+
+  const handleClearMetrics = useCallback(() => {
+    setPerformanceMetrics([]);
+    setCurrentMetrics(null);
+  }, []);
+
+  const handleRunBenchmark = useCallback(async () => {
+    const workerCounts = [1, 2, 4, 8];
+    const originalConfig = { ...workerConfig };
+
+    for (const maxWorkers of workerCounts) {
+      if (abortControllerRef.current?.signal.aborted) break;
+      
+      setWorkerConfig(prev => ({ ...prev, maxWorkers }));
+      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+      await handleAnalyze();
+      await new Promise(resolve => setTimeout(resolve, 500)); // Pause between runs
+    }
+    
+    // Restore original config
+    setWorkerConfig(originalConfig);
+  }, [workerConfig, handleAnalyze]);
+
+  return (
+    <>
+      <h1>RepoGraph Web Demo - Worker Battle Test</h1>
+      <div className="main-container">
+        <div className="config-panel">
+          <h3>RepoGraph Worker Battle Test Configuration</h3>
+          <div className="config-grid">
+            <label className="config-item">
+              Max Workers:
+              <input
+                type="number"
+                min="1"
+                max="8"
+                value={workerConfig.maxWorkers}
+                onChange={e => setWorkerConfig(prev => ({ ...prev, maxWorkers: parseInt(e.target.value) || 1 }))}
+                title="Number of worker threads for parallel analysis (1 = sequential)"
+              />
+            </label>
+            
+            <label className="config-item">
+              <input
+                type="checkbox"
+                checked={workerConfig.stressTestEnabled}
+                onChange={e => setWorkerConfig(prev => ({ ...prev, stressTestEnabled: e.target.checked }))}
+              />
+              Stress Test Mode
+            </label>
+            
+            <label className="config-item">
+              File Multiplier:
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={workerConfig.stressTestMultiplier}
+                onChange={e => setWorkerConfig(prev => ({ ...prev, stressTestMultiplier: parseInt(e.target.value) || 1 }))}
+                disabled={!workerConfig.stressTestEnabled}
+                title="Multiply input files by this factor for stress testing"
+              />
+            </label>
+            
+            <div className="config-info">
+              <strong>Current Mode:</strong> {workerConfig.maxWorkers > 1 ? `Parallel (${workerConfig.maxWorkers} workers)` : 'Sequential'}
+              {workerConfig.stressTestEnabled && (
+                <span> | Stress Test: {workerConfig.stressTestMultiplier}x files</span>
+              )}
+            </div>
+          </div>
+          
+          <div className="action-buttons">
+            <button onClick={handleAnalyze} disabled={isAnalyzing} className="primary-button">
+              {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+            </button>
+            <button onClick={handleCancel} disabled={!isAnalyzing} className="secondary-button">
+              Cancel
+            </button>
+            <button onClick={handleRunBenchmark} disabled={isAnalyzing} className="secondary-button">
+              Run Worker Benchmark (1,2,4,8 workers)
+            </button>
+            <button onClick={handleClearMetrics} className="secondary-button">
+              Clear Metrics
+            </button>
+          </div>
+          
+          {currentMetrics && (
+            <div className="current-metrics">
+              <h4>Last Run Metrics</h4>
+              <div className="metrics-grid">
+                <span>Duration: {currentMetrics.duration.toFixed(2)}ms</span>
+                <span>Files: {currentMetrics.filesProcessed}</span>
+                <span>Nodes: {currentMetrics.nodesFound}</span>
+                <span>Edges: {currentMetrics.edgesFound}</span>
+                <span>Workers: {currentMetrics.maxWorkers}</span>
+                <span>Mode: {currentMetrics.workerMode}</span>
+                <span>Files/sec: {(currentMetrics.filesProcessed / (currentMetrics.duration / 1000)).toFixed(2)}</span>
+                <span>Nodes/sec: {(currentMetrics.nodesFound / (currentMetrics.duration / 1000)).toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="container">
+          <div className="panel">
+              <h3>Input Files (JSON format)</h3>
+              <textarea
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  placeholder="Enter FileContent[] as JSON string..."
+                  spellCheck="false"
+              />
+          </div>
+          <div className="panel">
+              <h3>Output Markdown</h3>
+              <div className="output-panel">
+                  <MarkdownRenderer>{output}</MarkdownRenderer>
+              </div>
+          </div>
+        </div>
+        
+        <div className="bottom-panels">
+          <div className="panel">
+            <h3>Performance History</h3>
+            <div className="metrics-history">
+              {performanceMetrics.length === 0 ? (
+                <p>No metrics yet. Run an analysis to see performance data.</p>
+              ) : (
+                <table className="metrics-table">
+                  <thead>
+                    <tr>
+                      <th>Run</th>
+                      <th>Mode</th>
+                      <th>Workers</th>
+                      <th>Files</th>
+                      <th>Duration (ms)</th>
+                      <th>Nodes</th>
+                      <th>Files/sec</th>
+                      <th>Nodes/sec</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {performanceMetrics.map((metric, i) => (
+                      <tr key={i} className={i === performanceMetrics.length - 1 ? 'latest' : ''}>
+                        <td>{i + 1}</td>
+                        <td>{metric.workerMode}</td>
+                        <td>{metric.maxWorkers}</td>
+                        <td>{metric.filesProcessed}</td>
+                        <td>{metric.duration.toFixed(2)}</td>
+                        <td>{metric.nodesFound}</td>
+                        <td>{(metric.filesProcessed / (metric.duration / 1000)).toFixed(2)}</td>
+                        <td>{(metric.nodesFound / (metric.duration / 1000)).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+          
+          <div className="panel">
+              <h3>Logs</h3>
+              <div className="logs-panel">
+                  {logs.map((log, i) => (
+                      <div key={i} className={`log-entry log-${log.level}`}>
+                          <span className="log-timestamp">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          <span className="log-level">[{log.level.toUpperCase()}]</span>
+                          <span className="log-message">{log.args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')}</span>
+                      </div>
+                  ))}
+              </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default App;
+```
+
+## File: repograph/web-demo/src/main.tsx
+```typescript
+// Configure web-tree-sitter before any other imports
+(window as any).TreeSitterModule = {
+  locateFile: (path: string) => {
+    console.log(`[DEBUG] Global locateFile called with: ${path}`);
+    if (path === 'tree-sitter.wasm') {
+      return '/tree-sitter.wasm';
+    }
+    return path;
+  }
+};
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+import './App.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
+```
+
+## File: repograph/web-demo/index.html
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RepoGraph Web Demo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+## File: repograph/web-demo/package.json
+```json
+{
+  "name": "repograph-web-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "get-wasm": "repograph copy-wasm ./public/wasm"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1",
+    "react-syntax-highlighter": "^15.5.0",
+    "remark-gfm": "^4.0.0",
+    "repograph": "file:.."
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.2.0"
   }
 }
 ```
 
-RepoGraph produces a `CodeNode` with this structured metadata:
+## File: repograph/web-demo/tsconfig.json
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
 
--   `getUser`: `visibility: 'public'`, `isAsync: true`, `canThrow: true`, `returnType: 'Promise<User>'`, `parameters: [{ name: 'id', type: 'string' }]`
--   `validateEmail`: `visibility: 'private'`, `isStatic: true`, `returnType: 'boolean'`, `parameters: [{ name: 'email', type: 'string' }]`
+    // Path mapping for local development
+    "baseUrl": ".",
+    "paths": {
+      "repograph": ["../src/index.ts"]
+    },
 
-This rich metadata enables sophisticated integrations with tools like **`scn-ts`** for enhanced code visualization and AI-powered analysis.
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
 
-## 📦 Installation
-
-```bash
-# Using npm
-npm install repograph
-
-# Using yarn
-yarn add repograph
-
-# Using pnpm
-pnpm add repograph
-```
-To use the CLI globally, install with a `-g` flag.
-
-## 🛠️ Usage
-
-### Command-Line Interface (CLI)
-
-The CLI is the quickest way to get a codemap. Simply navigate to your project's root directory and run the command.
-
-**Basic Usage**
-
-```bash
-# Analyze the current directory and create repograph.md
-repograph
-```
-
-**Advanced Usage**
-
-```bash
-# Analyze a specific project, use the git-changes ranker, and customize the output
-repograph ./my-cool-project \
-  --output docs/CodeMap.md \
-  --ranking-strategy git-changes \
-  --ignore "**/__tests__/**" \
-  --max-workers 4 \
-  --no-mermaid
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
 ```
 
-#### All CLI Options
+## File: repograph/web-demo/tsconfig.node.json
+```json
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+```
 
-| Command / Argument              | Alias | Description                                                                   | Default                     |
-| :------------------------------ | :---- | :---------------------------------------------------------------------------- | :-------------------------- |
-| **Commands**                    |       |                                                                               |                             |
-| `[root]`                        |       | Analyze a repository at the given root path. This is the default command.     | `.`                         |
-| `copy-wasm [destination]`       |       | Copy Tree-sitter WASM files to a directory for browser usage.                   | `./public/wasm`             |
-| **Arguments & Options**         |       |                                                                               |                             |
-| `--output <path>`               |       | Path to the output Markdown file.                                             | `repograph.md`              |
-| `--include <pattern>`           |       | Glob pattern for files to include. Can be specified multiple times.             | `**/*`                      |
-| `--ignore <pattern>`            |       | Glob pattern for files to ignore. Can be specified multiple times.              |                             |
-| `--no-gitignore`                |       | Do not respect `.gitignore` files.                                              | `false`                     |
-| `--ranking-strategy <name>`     |       | Ranking strategy: `pagerank` or `git-changes`.                                  | `pagerank`                  |
-| `--max-workers <num>`           |       | Number of parallel workers for analysis. Set to 1 for single-threaded.          | `1`                         |
-| `--log-level <level>`           |       | Logging level: `silent`, `error`, `warn`, `info`, `debug`.                      | `info`                      |
-| `--help`                        | `-h`  | Display the help message.                                                     |                             |
-| `--version`                     | `-v`  | Display the version number.                                                     |                             |
-| **Output Formatting**           |       |                                                                               |                             |
-| `--no-header`                   |       | Do not include the main "RepoGraph" header.                                     | `false`                     |
-| `--no-overview`                 |       | Do not include the project overview section.                                    | `false`                     |
-| `--no-mermaid`                  |       | Do not include the Mermaid dependency graph.                                    | `false`                     |
-| `--no-file-list`                |       | Do not include the list of top-ranked files.                                    | `false`                     |
-| `--no-symbol-details`           |       | Do not include the detailed file and symbol breakdown.                          | `false`                     |
-| `--top-file-count <num>`        |       | Number of files in the top list.                                                | `10`                        |
-| `--file-section-separator <str>`|       | Custom separator for file sections.                                             | `---`                       |
-| `--no-symbol-relations`         |       | Hide symbol relationship details (e.g., `calls`).                               | `false`                     |
-| `--no-symbol-line-numbers`      |       | Hide line numbers for symbols.                                                  | `false`                     |
-| `--no-symbol-snippets`          |       | Hide code snippets for symbols.                                                 | `false`                     |
-| `--max-relations-to-show <num>` |       | Max number of 'calls' relations to show per symbol.                             | `3`                         |
-
-### 📚 Programmatic API
-
-For ultimate flexibility, use the RepoGraph programmatic API. Integrate it into your own tools, build custom pipelines, and invent new ways to analyze code.
-
-#### High-Level API (`analyzeProject`)
-
-This is the main entry point for both Node.js and browser environments.
-
-**Node.js Usage (File Discovery)**
-
+## File: repograph/web-demo/vite.config.ts
 ```typescript
-// my-node-script.ts
-import { analyzeProject, createMarkdownRenderer } from 'repograph';
-import path from 'node:path';
-import fs from 'node:fs/promises';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+// import wasm from 'vite-plugin-wasm'
+// import topLevelAwait from 'vite-plugin-top-level-await'
 
-// Analyze files on disk
-const rankedGraph = await analyzeProject({
-  root: path.resolve('./path/to/your/project'),
-  rankingStrategy: 'git-changes',
-  maxWorkers: 4,
-});
-
-// Render the output
-const renderer = createMarkdownRenderer();
-const markdown = renderer(rankedGraph);
-
-await fs.writeFile('report.md', markdown);
-console.log('✅ Report generated!');
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    // wasm(),
+    // topLevelAwait()
+  ],
+  optimizeDeps: {
+    exclude: ['repograph', 'web-tree-sitter']
+  },
+  resolve: {
+    alias: {
+      'repograph': path.resolve(__dirname, '../dist/browser.js')
+    }
+  },
+  define: {
+    global: 'globalThis',
+    'process.env': {},
+    'process.platform': '"browser"',
+    'process.version': '"v18.0.0"'
+  },
+  server: {
+    fs: {
+      allow: ['..']
+    },
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    }
+  },
+  worker: {
+    plugins: () => [
+      // wasm(),
+      // topLevelAwait()
+    ]
+  },
+  assetsInclude: ['**/*.wasm'],
+  publicDir: 'public'
+})
 ```
 
-**Browser Usage (In-Memory Files)**
+## File: repograph/package.json
+```json
+{
+  "name": "repograph",
+  "version": "0.1.19",
+  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "repograph": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
+    "dev": "tsup --watch",
+    "test": "bun run test/run-tests.ts",
+    "test:unit": "bun run test/run-tests.ts unit",
+    "test:integration": "bun run test/run-tests.ts integration",
+    "test:e2e": "bun run test/run-tests.ts e2e",
+    "test:watch": "bun test --watch test/**/*.test.ts",
+    "test:coverage": "bun test --coverage test/**/*.test.ts",
+    "test:basic": "bun test test-basic.js",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "tinypool": "^0.8.2",
+    "@types/js-yaml": "^4.0.9",
+    "globby": "^14.1.0",
+    "graphology": "^0.26.0",
+    "graphology-pagerank": "^1.1.0",
+    "js-yaml": "^4.1.0",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-css": "^0.23.2",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-php": "^0.23.12",
+    "tree-sitter-python": "^0.23.6",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-solidity": "^1.2.11",
+    "tree-sitter-swift": "^0.7.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-vue": "^0.2.1",
+    "web-tree-sitter": "^0.25.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "bun-types": "^1.1.12",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "codemap",
+    "graph",
+    "visualization",
+    "code-analysis",
+    "tree-sitter",
+    "repo-analysis",
+    "ai-context",
+    "bun",
+    "functional-programming"
+  ],
+  "author": "RelayCoder <you@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/relaycoder/repograph.git"
+  },
+  "homepage": "https://github.com/relaycoder/repograph#readme",
+  "bugs": {
+    "url": "https://github.com/relaycoder/repograph/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "bun": ">=1.0.0"
+  }
+}
+```
 
-To use RepoGraph in the browser, you must provide the file content directly.
+## File: repograph/tsconfig.json
+```json
+{
+  "compilerOptions": {
+    // Environment setup & latest features
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "allowJs": true,
 
-1.  **Copy WASM files:** First, copy the necessary parser files into your public web directory.
+    // Bundler mode
+    "moduleResolution": "bundler",
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
 
-    ```bash
-    npx repograph copy-wasm ./public/wasm
-    ```
+    // Best practices
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
 
-2.  **Initialize and Analyze:** In your application code, initialize the parser with the location of the WASM files and then pass your in-memory file data to `analyzeProject`.
+    // Some stricter flags (disabled by default)
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "noPropertyAccessFromIndexSignature": true,
 
-    ```typescript
-    // my-browser-app.ts
-    import { initializeParser, analyzeProject, createMarkdownRenderer } from 'repograph';
+    // Include bun types
+    "types": ["bun-types"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "web-demo/src/**/*",
+    "bun.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "docs",
+    ".relay",
+    ".relaycode"
+  ]
+}
+```
 
-    // In-memory file data (e.g., from a file upload, API, or Monaco editor)
-    const files = [
-      { path: 'src/index.ts', content: 'import { a } from "./utils";' },
-      { path: 'src/utils.ts', content: 'export const a = 1;' },
-    ];
+## File: repograph/tsup.config.ts
+```typescript
+import { defineConfig } from 'tsup';
+import { copyFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
 
-    async function runAnalysis() {
-      // 1. Initialize parser with the path to your WASM files
-      await initializeParser({ wasmBaseUrl: '/wasm/' });
-
-      // 2. Analyze the in-memory files
-      const rankedGraph = await analyzeProject({
-        files: files, // This skips file-system discovery
-        rankingStrategy: 'pagerank', // 'git-changes' is not available in browser
-      });
-
-      // 3. Render the output to a string
-      const renderer = createMarkdownRenderer();
-      const markdown = renderer(rankedGraph, { includeMermaidGraph: true });
-
-      // 4. Display the markdown in your app
-      document.getElementById('report-container').innerText = markdown;
+export default defineConfig({
+  entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
+  format: ['esm', 'cjs'],
+  target: 'es2022',
+  dts: true,
+  sourcemap: true,
+  clean: true,
+  splitting: false, // Disable splitting for CJS compatibility
+  treeshake: true,
+  minify: false,
+  outDir: 'dist',
+  onSuccess: async () => {
+    // Copy WASM files to dist folder
+    const wasmDir = join('dist', 'wasm');
+    if (!existsSync(wasmDir)) {
+      mkdirSync(wasmDir, { recursive: true });
     }
 
-    runAnalysis();
-    ```
+    const wasmFiles = [
+      'tree-sitter-typescript/tree-sitter-typescript.wasm',
+      'tree-sitter-typescript/tree-sitter-tsx.wasm',
+      'tree-sitter-javascript/tree-sitter-javascript.wasm',
+      'tree-sitter-python/tree-sitter-python.wasm',
+      'tree-sitter-java/tree-sitter-java.wasm',
+      'tree-sitter-c/tree-sitter-c.wasm',
+      'tree-sitter-cpp/tree-sitter-cpp.wasm',
+      'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
+      'tree-sitter-css/tree-sitter-css.wasm',
+      'tree-sitter-go/tree-sitter-go.wasm',
+      'tree-sitter-php/tree-sitter-php.wasm',
+      'tree-sitter-ruby/tree-sitter-ruby.wasm',
+      'tree-sitter-rust/tree-sitter-rust.wasm',
+      'tree-sitter-solidity/tree-sitter-solidity.wasm',
+      'tree-sitter-swift/tree-sitter-swift.wasm',
+      'tree-sitter-vue/tree-sitter-vue.wasm',
+    ];
 
-## 🧩 The RepoGraph Pipeline
-
-RepoGraph processes your code in four distinct, composable stages:
-
-1.  **`🔍 Discover`**
-    -   Scans the filesystem using glob patterns, respecting `.gitignore`.
-    -   Reads all matching files into memory. (Skipped when `files` are provided).
-
-2.  **`🧠 Analyze`**
-    -   Parses files using **Tree-sitter** and language-specific queries.
-    -   Extracts symbol definitions (classes, functions), relationships (imports, calls), UI structure (JSX tags), and rich semantic qualifiers (`async`, `canThrow`, etc.).
-    -   Builds the core `CodeGraph` of nodes and edges.
-
-3.  **`⭐ Rank`**
-    -   Applies a ranking algorithm (like PageRank) to assign a score to every node in the graph.
-    -   Produces a `RankedCodeGraph`.
-
-4.  **`🎨 Render`**
-    -   Receives the `RankedCodeGraph` and options.
-    -   Generates the final Markdown output, including the summary, Mermaid graph, and detailed breakdowns.
-
-## 📋 API Types Reference
-
-The core `CodeNode` type is enriched with detailed semantic qualifiers.
-
-```typescript
-export type CodeNodeVisibility = 'public' | 'private' | 'protected' | 'internal' | 'default';
-
-export type CodeNode = {
-  readonly id: string;           // Unique identifier (e.g., 'src/api.ts#MyClass')
-  readonly type: CodeNodeType;   // Symbol type (class, function, etc.)
-  readonly name: string;         // Symbol name
-  readonly filePath: string;     // File location
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly language?: string;
-  readonly codeSnippet?: string; // Code preview (e.g., function signature)
-
-  // Rich Semantic Qualifiers
-  readonly visibility?: CodeNodeVisibility;
-  readonly isAsync?: boolean;
-  readonly isStatic?: boolean;
-  readonly canThrow?: boolean; // True if the function contains a 'throw' statement
-  readonly isPure?: boolean;   // True if the function appears to have no side-effects
-
-  // Type & Parameter Information
-  readonly returnType?: string;
-  readonly parameters?: Array<{
-    name: string;
-    type?: string;
-  }>;
-};
-```
-
-## ⚡ Performance Optimization
-
-RepoGraph includes powerful parallel processing capabilities to dramatically speed up analysis of large codebases.
-
-### Worker Threads
-
-By default, RepoGraph analyzes files sequentially (`maxWorkers: 1`). For large projects, you can enable parallel processing using worker threads:
-
-```bash
-# CLI: Use 4 parallel workers
-repograph --max-workers 4
-
-# For CPU-intensive projects, use more workers (typically CPU cores)
-repograph --max-workers 8
-```
-
-```typescript
-// API: Configure parallel processing
-import { analyzeProject } from 'repograph';
-
-const graph = await analyzeProject({
-  root: './large-codebase',
-  maxWorkers: 4, // Parallel file processing
+    for (const wasmFile of wasmFiles) {
+      const srcPath = join('node_modules', wasmFile);
+      const wasmFileName = wasmFile.split('/')[1];
+      if (!wasmFileName) {
+        console.warn(`Skipping invalid wasmFile path: ${wasmFile}`);
+        continue;
+      }
+      const destPath = join('dist', 'wasm', wasmFileName);
+      
+      if (existsSync(srcPath)) {
+        copyFileSync(srcPath, destPath);
+        console.log(`Copied ${wasmFileName} to dist/wasm/`);
+      }
+    }
+  },
 });
 ```
 
-### Performance Guidelines
-
-- **Small projects (< 100 files)**: Use `maxWorkers: 1` to avoid worker overhead
-- **Medium projects (100-1000 files)**: Use `maxWorkers: 2-4` for optimal performance
-- **Large projects (> 1000 files)**: Use `maxWorkers: 4-8` or match your CPU core count
-- **CI/CD environments**: Consider available CPU resources and memory limits
-
-### Implementation Details
-
-RepoGraph uses the [`tinypool`](https://github.com/tinylibs/tinypool) library to manage worker threads efficiently. Each worker:
-
-- Parses files using Tree-sitter in isolation
-- Extracts code nodes and relationships
-- Returns serializable data to the main thread
-- Automatically handles worker lifecycle and error recovery
-
-The main thread coordinates workers and resolves cross-file relationships after all files are processed.
-
-## 🌐 Supported Languages
-
-Thanks to Tree-sitter, RepoGraph has robust support for a wide array of popular languages:
-
--   **JavaScript / TypeScript:** First-class support, including `JSX` and `TSX`.
--   **Web & UI:** `Vue`, with structural analysis for `HTML` and styling intent for `CSS`.
--   **Backend:** `Python`, `Java`, `Go`, `Rust`, `C#`, `PHP`, `Ruby`.
--   **Systems:** `C`, `C++`.
--   **Web3:** `Solidity`.
--   ...and more, with support easily extended via new Tree-sitter queries.
-
-## 🙌 Contributing
-
-Contributions are welcome! Whether you're fixing a bug, adding a feature, or improving documentation, your help is appreciated.
-
-1.  Fork the repository (`https://github.com/relaycoder/repograph`).
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Make your changes.
-4.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-5.  Push to the branch (`git push origin feature/AmazingFeature`).
-6.  Open a Pull Request.
-
-This project uses `bun` for development, `eslint` for linting, and `prettier` for formatting. Please ensure your contributions adhere to the existing code style.
-
-## 📜 License
-
-This project is licensed under the **MIT License**. See the [LICENSE](./LICENSE) file for details.
-````
-
 ## File: src/cli.ts
-````typescript
+```typescript
 import { generateScn, type ScnTsConfig } from './index.js';
 import { existsSync, readFileSync, watch } from 'fs';
-import { writeFile } from 'fs/promises';
-import { resolve, relative } from 'path';
+import { writeFile, readdir, mkdir, copyFile } from 'fs/promises';
+import { resolve, relative, dirname, join } from 'path';
 import { version } from '../package.json';
+import { createRequire } from 'node:module';
 
 interface CliOptions {
   include: string[];
@@ -723,6 +1364,40 @@ interface CliOptions {
   help: boolean;
   version: boolean;
 }
+
+const copyWasmFiles = async (destination: string) => {
+  try {
+    const require = createRequire(import.meta.url);
+    const repographMainPath = require.resolve('repograph');
+    const sourceDir = resolve(dirname(repographMainPath), 'wasm');
+
+    if (!existsSync(sourceDir)) {
+      console.error(
+        `[SCN-TS] Error: Could not find WASM files directory for 'repograph'. Looked in ${sourceDir}. Please check your 'repograph' installation.`,
+      );
+      process.exit(1);
+    }
+
+    await mkdir(destination, { recursive: true });
+
+    const wasmFiles = (await readdir(sourceDir)).filter((file) => file.endsWith('.wasm'));
+    if (wasmFiles.length === 0) {
+      console.error(
+        `[SCN-TS] Error: No WASM files found in ${sourceDir}. This might be an issue with the 'repograph' package installation.`,
+      );
+      process.exit(1);
+    }
+    for (const file of wasmFiles) {
+      const srcPath = join(sourceDir, file);
+      const destPath = join(destination, file);
+      await copyFile(srcPath, destPath);
+      console.error(`[SCN-TS] Copied ${file} to ${relative(process.cwd(), destPath)}`);
+    }
+    console.error(`\n[SCN-TS] All ${wasmFiles.length} WASM files copied successfully.`);
+  } catch (err) {
+    console.error('[SCN-TS] Error copying WASM files.', err);
+  }
+};
 
 const ARG_CONFIG: Record<string, { key: keyof CliOptions; takesValue: boolean }> = {
   '-o': { key: 'output', takesValue: true },
@@ -811,9 +1486,19 @@ function showHelp() {
 
   Usage:
     scn-ts [globs...] [options]
+    scn-ts copy-wasm [destination]
 
   Arguments:
     globs...         Glob patterns specifying files to include.
+
+  Commands:
+    [globs...]       (default) Analyze a repository at the given path.
+    copy-wasm        Copy Tree-sitter WASM files to a directory for browser usage.
+
+  Arguments:
+    globs...         Glob patterns specifying files to include.
+    destination      For 'copy-wasm', the destination directory. (default: ./public/wasm)
+
 
   Options:
     -o, --output <path>      Path to write the SCN output file. (default: stdout)
@@ -827,6 +1512,14 @@ function showHelp() {
 }
 
 async function run() {
+  const cliArgs = process.argv.slice(2);
+
+  if (cliArgs[0] === 'copy-wasm') {
+    const destDir = cliArgs[1] || './public/wasm';
+    console.error(`[SCN-TS] Copying WASM files to "${resolve(destDir)}"...`);
+    await copyWasmFiles(destDir);
+    return;
+  }
   const cliOptions = parseArgs(process.argv);
 
   if (cliOptions.version) {
@@ -843,7 +1536,7 @@ async function run() {
 
   const config: ScnTsConfig = {
     root: process.cwd(),
-    include: cliOptions.include.length > 0 ? cliOptions.include : (fileConfig.include || []),
+    include: cliOptions.include.length > 0 ? cliOptions.include : fileConfig.include,
     exclude: fileConfig.exclude,
     project: cliOptions.project || fileConfig.project,
     maxWorkers: cliOptions.maxWorkers || fileConfig.maxWorkers,
@@ -851,7 +1544,7 @@ async function run() {
   
   const output = cliOptions.output || fileConfig.output;
 
-  if (config.include.length === 0) {
+  if (!config.include || config.include.length === 0) {
     console.error('Error: No input files specified. Provide glob patterns as arguments or in a config file.');
     showHelp();
     process.exit(1);
@@ -892,25 +1585,31 @@ run().catch(e => {
     console.error(e);
     process.exit(1);
 });
-````
+```
 
 ## File: src/index.ts
-````typescript
+```typescript
 import { analyzeProject } from 'repograph';
 import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
 import { serializeGraph } from './serializer';
 
-/**
- * Configuration options for generating an SCN map.
- * These options are passed to the underlying `repograph` engine.
- */
 export interface ScnTsConfig {
-  /** The root directory of the project to analyze. Defaults to the current working directory. */
+  /**
+   * The root directory of the project to analyze. Defaults to the current working directory.
+   * Not used if `files` is provided.
+   */
   root?: string;
-  /** Glob patterns for files to include. */
-  include: string[];
+  /**
+   * Glob patterns for files to include. Required if `files` is not provided.
+   */
+  include?: string[];
   /** Glob patterns for files to exclude. */
   exclude?: string[];
+  /**
+   * For browser or in-memory usage, provide file contents directly. This will
+   * bypass all file-system operations (`root`, `include`, `exclude`).
+   */
+  files?: readonly { path: string; content: string }[];
   /** Path to the project's tsconfig.json. (Not currently used by repograph) */
   project?: string;
   /**
@@ -941,6 +1640,7 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
     include: config.include,
     ignore: config.exclude,
     maxWorkers: config.maxWorkers,
+    files: config.files,
     // We can set other repograph options here if needed, e.g. rankingStrategy
   };
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
@@ -968,6 +1668,7 @@ export {
   createMarkdownRenderer,
   // Logger utilities
   logger,
+  initializeParser,
 } from 'repograph';
 
 // Re-export types from repograph
@@ -991,11 +1692,13 @@ export type {
   // Logger types
   Logger,
   LogLevel,
+  // Parser types
+  ParserInitializationOptions,
 } from 'repograph';
-````
+```
 
 ## File: src/serializer.ts
-````typescript
+```typescript
 import type {
   RankedCodeGraph,
   CodeNode,
@@ -1437,18 +2140,48 @@ const serializeFile = (
     if (edges.length === 0) return '';
     const links = edges.map((edge: CodeEdge) => {
       const targetId = prefix === '->' ? edge.toId : edge.fromId;
-      const targetScnId = idManager.getScnId(targetId);
+      const targetNode = graph.nodes.get(targetId);
+      
+      // If the target is an entity (not a file), we need to get its file's ID
+      let fileId: string;
+      if (targetNode?.type === 'file') {
+        fileId = targetId;
+      } else {
+        // Find the file that contains this entity
+        const entityFilePath = targetNode?.filePath;
+        const fileNode = Array.from(graph.nodes.values()).find(n => n.type === 'file' && n.filePath === entityFilePath);
+        fileId = fileNode?.id || targetId;
+      }
+      
+      const targetScnId = idManager.getScnId(fileId);
       return `(${targetScnId}.0)`;
-    }).sort().join(', ');
-    if (!links) return '';
-    return `\n  ${prefix} ${links}`;
+    }).filter(Boolean);
+    
+    // Remove duplicates and sort
+    const uniqueLinks = [...new Set(links)].sort().join(', ');
+    if (!uniqueLinks) return '';
+    return `\n  ${prefix} ${uniqueLinks}`;
   };
 
-  const fileDependencies = graph.edges.filter(e => e.type === 'imports' && e.fromId === fileNode.id);
-  const fileCallers = graph.edges.filter(e => e.type === 'imports' && e.toId === fileNode.id);
+  // File-level dependencies: imports or calls from this file to other files
+  const fileDependencies = graph.edges.filter(e => 
+    e.fromId === fileNode.id && 
+    (e.type === 'imports' || (e.type === 'calls' && graph.nodes.get(e.toId)?.type !== 'file'))
+  );
+  
+  // File-level callers: imports or calls to entities in this file from other files  
+  const fileCallers = graph.edges.filter(e => {
+    const toNode = graph.nodes.get(e.toId);
+    const fromNode = graph.nodes.get(e.fromId);
+    
+    // If the target is an entity in this file and the source is from a different file
+    return toNode?.filePath === fileNode.filePath && 
+           fromNode?.filePath !== fileNode.filePath &&
+           (e.type === 'imports' || e.type === 'calls');
+  });
 
-    const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
-    let header = `§ (${scnId}) ${formattedPath}`;
+  const formattedPath = fileNode.filePath.includes(' ') ? `"${fileNode.filePath}"` : fileNode.filePath;
+  let header = `§ (${scnId}) ${formattedPath}`;
   const fileDepLine = formatFileLinks('->', fileDependencies);
   if (fileDepLine) header += fileDepLine;
   const fileCallerLine = formatFileLinks('<-', fileCallers);
@@ -1543,13 +2276,13 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 
   return scnParts.join('\n\n');
 };
-````
+```
 
 ## File: package.json
-````json
+```json
 {
   "name": "scn-ts",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "Generate Symbolic Context Notation (SCN) maps from your TypeScript/JavaScript codebase.",
   "author": "anton",
   "license": "MIT",
@@ -1567,7 +2300,7 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
   ],
   "type": "module",
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
     "scn-ts": "./dist/cli.js"
@@ -1577,9 +2310,9 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
   ],
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "scripts": {
@@ -1587,7 +2320,7 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "repograph": "0.1.12"
+    "repograph": "^0.1.19"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -1599,10 +2332,10 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "typescript": "^5"
   }
 }
-````
+```
 
 ## File: tsconfig.json
-````json
+```json
 {
   "compilerOptions": {
     // Environment setup & latest features
@@ -1643,10 +2376,10 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
   "include": ["src", "test"],
   "exclude": ["node_modules", "dist"]
 }
-````
+```
 
 ## File: tsup.config.ts
-````typescript
+```typescript
 import { defineConfig } from 'tsup';
 
 export default defineConfig([
@@ -1658,6 +2391,7 @@ export default defineConfig([
     clean: true, // Cleans the dist folder once before building.
     splitting: false,
     shims: true,
+    external: ['repograph'],
   },
   {
     entry: ['src/cli.ts'],
@@ -1665,10 +2399,11 @@ export default defineConfig([
     sourcemap: true,
     splitting: false,
     shims: true,
+    external: ['repograph'],
     banner: {
       js: '#!/usr/bin/env node',
     },
     // No .d.ts files for the CLI entry point.
   },
 ]);
-````
+```
