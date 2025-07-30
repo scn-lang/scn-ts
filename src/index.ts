@@ -1,6 +1,8 @@
 import { analyzeProject } from 'repograph';
 import type { RankedCodeGraph, RepoGraphOptions } from 'repograph';
-import { serializeGraph } from './serializer';
+import { serializeGraph as coreSerializeGraph } from 'scn-ts-core';
+import { readFileSync } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
 
 export interface ScnTsConfig {
   /**
@@ -43,6 +45,24 @@ export interface ScnTsConfig {
  * @returns A promise that resolves to the SCN map as a string.
  */
 export const generateScn = async (config: ScnTsConfig): Promise<string> => {
+  const sourceFileCache = new Map<string, string>();
+  const getSourceContent = (filePath: string): string | undefined => {
+    const rootDir = config.root || process.cwd();
+    const fullPath = isAbsolute(filePath) ? filePath : join(rootDir, filePath);
+    
+    if (sourceFileCache.has(fullPath)) {
+      return sourceFileCache.get(fullPath);
+    }
+    try {
+      const content = readFileSync(fullPath, 'utf-8');
+      sourceFileCache.set(fullPath, content);
+      return content;
+    } catch {
+      sourceFileCache.set(fullPath, ''); // Cache failure
+      return undefined;
+    }
+  };
+
   // 1. repograph analyzes the project and returns a structured graph.
   const repoGraphOptions: RepoGraphOptions = {
     root: config.root,
@@ -50,17 +70,16 @@ export const generateScn = async (config: ScnTsConfig): Promise<string> => {
     ignore: config.exclude,
     maxWorkers: config.maxWorkers,
     files: config.files,
-    // We can set other repograph options here if needed, e.g. rankingStrategy
   };
   const graph: RankedCodeGraph = await analyzeProject(repoGraphOptions);
 
   // 2. scn-ts serializes that graph into the SCN text format.
-  const scnOutput = serializeGraph(graph, config.root);
+  const scnOutput = coreSerializeGraph(graph, { getSourceContent });
   return scnOutput;
 };
 
 // Low-level API for composition
-export { serializeGraph };
+export { serializeGraph } from 'scn-ts-core';
 
 // Re-export from repograph for advanced users
 export {
