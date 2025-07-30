@@ -1,6 +1,6 @@
 {
   "name": "scn-ts",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A CLI and Node.js toolkit for generating Symbolic Context Notation (SCN) maps from your codebase.",
   "author": "anton",
   "license": "MIT",
