@@ -22,37 +22,11 @@
       "includeDiffs": false
     }
   },
-  "include": [
-    "package.json",
-    "tsconfig.json",
-    "tsup.config.ts",
-    "src",
-
-    "repograph/web-demo",
-
-   // "docs/scn.readme.md",
-   // "test",
-   // "repograph/src"
-   //
-   "repograph/package.json",
-   "repograph/tsconfig.json",
-   "repograph/tsup.config.ts",
-   "repograph/src/index.ts"
-   // "repograph/README.md"
-
-  ],
+  "include": ["package.json", "tsconfig.json", "tsup.config.ts", "src", "test"],
   "ignore": {
     "useGitignore": true,
     "useDefaultPatterns": true,
-    "customPatterns": [
-    "repograph/web-demo/dist",
-    "repograph/web-demo/node_modules",
-    "repograph/web-demo/public",
-    "repograph/web-demo/bun.lock",
-    "repograph/web-demo/package-lock.json",
-    "repograph/web-demo/tsconfig.tsbuildinfo",
-    "repograph/web-demo/tsconfig.node.tsbuildinfo"
-    ]
+    "customPatterns": []
   },
   "security": {
     "enableSecurityCheck": true

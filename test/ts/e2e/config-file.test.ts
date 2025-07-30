@@ -4,7 +4,7 @@ import { readFile } from 'fs/promises';
 import { join, resolve } from 'path';
 
 // Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+const CLI_PATH = resolve(process.cwd(), 'dist/cli.js');
 
 describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
   let project: TestProject | undefined;
@@ -23,7 +23,7 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `export default { include: ['a.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+    const proc = Bun.spawn(['bun', CLI_PATH], { 
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -43,7 +43,7 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `export default { include: ['**/*.ts'], exclude: ['**/*.ignore.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+    const proc = Bun.spawn(['bun', CLI_PATH], { 
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -63,7 +63,7 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'scn.config.js': `import {mkdirSync} from 'fs'; mkdirSync('dist'); export default { include: ['a.ts'], output: '${outputPath}' };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+    const proc = Bun.spawn(['bun', CLI_PATH], { 
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -86,7 +86,7 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
     });
     
     // Override both `include` and `output`
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'b.ts', '-o', cliOutputPath], {
+    const proc = Bun.spawn(['bun', CLI_PATH, 'b.ts', '-o', cliOutputPath], {
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -110,7 +110,7 @@ describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
       'config/my.config.js': `export default { include: ['a.ts'] };`,
     });
     
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '-c', 'config/my.config.js'], { 
+    const proc = Bun.spawn(['bun', CLI_PATH, '-c', 'config/my.config.js'], { 
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',

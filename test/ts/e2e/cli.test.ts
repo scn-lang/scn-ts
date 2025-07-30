@@ -4,8 +4,7 @@ import { readFile } from 'fs/promises';
 import { join, resolve } from 'path';
 import { version } from '../../../package.json';
 
-// Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+const CLI_PATH = resolve(process.cwd(), 'dist/cli.js');
 
 describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
   let project: TestProject | undefined;
@@ -23,7 +22,7 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
       'b.ts': 'export const B = 2;',
     });
     
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts'], {
+    const proc = Bun.spawn(['bun', CLI_PATH, 'a.ts'], {
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',
@@ -44,7 +43,7 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
     project = await setupTestProject({ 'a.ts': 'export const A = 1;' });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts', '--output', outputPath], {
+    const proc = Bun.spawn(['bun', CLI_PATH, 'a.ts', '--output', outputPath], {
       cwd: project.projectDir,
     });
     
@@ -60,7 +59,7 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
       'tsconfig.test.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
     });
 
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'Comp.tsx', '-p', 'tsconfig.test.json'], {
+    const proc = Bun.spawn(['bun', CLI_PATH, 'Comp.tsx', '-p', 'tsconfig.test.json'], {
       cwd: project.projectDir,
     });
     
@@ -71,13 +70,13 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
   });
 
   it('should display the correct version with --version', async () => {
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--version']);
+    const proc = Bun.spawn(['bun', CLI_PATH, '--version']);
     const stdout = await new Response(proc.stdout).text();
     expect(stdout.trim()).toBe(version);
   });
   
   it('should display the help screen with --help', async () => {
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--help']);
+    const proc = Bun.spawn(['bun', CLI_PATH, '--help']);
     const stdout = await new Response(proc.stdout).text();
     expect(stdout).toContain('Usage:');
     expect(stdout).toContain('--output <path>');
@@ -87,7 +86,7 @@ describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
     project = await setupTestProject({}); // Empty project
     
     // Test with no input files specified - this should trigger the error
-    const proc = Bun.spawn(['bun', 'run', CLI_PATH], {
+    const proc = Bun.spawn(['bun', CLI_PATH], {
       cwd: project.projectDir,
       stderr: 'pipe',
       stdout: 'pipe',

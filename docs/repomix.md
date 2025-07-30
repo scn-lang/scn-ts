@@ -1,1349 +1,32 @@
 # Directory Structure
 ```
-repograph/
-  src/
-    index.ts
-  web-demo/
-    src/
-      App.css
-      App.tsx
-      main.tsx
-    index.html
-    package.json
-    tsconfig.json
-    tsconfig.node.json
-    vite.config.ts
-  package.json
-  tsconfig.json
-  tsup.config.ts
 src/
   cli.ts
   index.ts
   serializer.ts
+test/
+  ts/
+    e2e/
+      cli.test.ts
+      config-file.test.ts
+      filesystem.test.ts
+    integration/
+      css-parsing.test.ts
+      dependency-graph.test.ts
+      programmatic-api.test.ts
+    unit/
+      code-entities.test.ts
+      general-structural.test.ts
+      jsx.test.ts
+      qualifiers.test.ts
+      type-system.test.ts
+  test.util.ts
 package.json
 tsconfig.json
 tsup.config.ts
 ```
 
 # Files
-
-## File: repograph/src/index.ts
-```typescript
-#!/usr/bin/env bun
-
-import { logger } from './utils/logger.util';
-import { RepoGraphError } from './utils/error.util';
-// High-Level API for simple use cases
-import { generateMap as executeGenerateMap } from './high-level';
-import { type RepoGraphOptions as IRepoGraphOptions } from './types';
-
-export { analyzeProject, generateMap } from './high-level';
-export { initializeParser } from './tree-sitter/languages';
-
-// Low-Level API for composition and advanced use cases
-export { createMapGenerator } from './composer';
-
-// Default pipeline component factories
-export { createDefaultDiscoverer } from './pipeline/discover';
-export { createTreeSitterAnalyzer } from './pipeline/analyze';
-export { createPageRanker, createGitRanker } from './pipeline/rank';
-export { createMarkdownRenderer } from './pipeline/render';
-
-// Logger utilities
-export { logger } from './utils/logger.util';
-export type { LogLevel, Logger } from './utils/logger.util';
-export type { ParserInitializationOptions } from './tree-sitter/languages';
-
-// Core types for building custom components
-export type {
-  Analyzer,
-  FileContent,
-  CodeNode,
-  CodeNodeType,
-  CodeNodeVisibility,
-  CodeEdge,
-  CodeGraph,
-  RankedCodeGraph,
-  RepoGraphMap,
-  RepoGraphOptions,
-  CssIntent,
-  Ranker,
-  Renderer,
-  RendererOptions,
-  FileDiscoverer,
-} from './types';
-
-// This section runs only when the script is executed directly from the CLI
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const isRunningDirectly = () => {
-  if (typeof process.argv[1] === 'undefined') return false;
-  const runningFile = path.resolve(process.argv[1]);
-  const currentFile = fileURLToPath(import.meta.url);
-  return runningFile === currentFile;
-};
-
-const copyWasmFiles = async (destination: string) => {
-  const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-  if (isBrowser) {
-    logger.error('File system operations are not available in the browser.');
-    return;
-  }
-
-  try {
-    const { promises: fs } = await import('node:fs');
-    const path = await import('node:path');
-
-    // Source is relative to the running script (dist/index.js)
-    const sourceDir = path.resolve(fileURLToPath(import.meta.url), '..', 'wasm');
-
-    await fs.mkdir(destination, { recursive: true });
-
-    const wasmFiles = (await fs.readdir(sourceDir)).filter(file => file.endsWith('.wasm'));
-    for (const file of wasmFiles) {
-      const srcPath = path.join(sourceDir, file);
-      const destPath = path.join(destination, file);
-      await fs.copyFile(srcPath, destPath);
-      logger.info(`Copied ${file} to ${path.relative(process.cwd(), destPath)}`);
-    }
-    logger.info(`\n✅ All ${wasmFiles.length} WASM files copied successfully.`);
-  } catch (err) {
-    logger.error('Error copying WASM files.', err);
-  }
-};
-
-if (isRunningDirectly()) {
-  (async () => {
-    const args = process.argv.slice(2);
-
-    if (args.includes('--help') || args.includes('-h')) {
-      console.log(`
-Usage: repograph [root] [options]
-       repograph copy-wasm [destination]
-
-Commands:
-  [root]                   Analyze a repository at the given root path. This is the default command.
-  copy-wasm [destination]  Copy the necessary Tree-sitter WASM files to a specified directory
-                           for browser-based usage.
-                           (default destination: "./public/wasm")
-
-Arguments:
-  root                     The root directory of the repository to analyze. Defaults to the current working directory.
-
-Options:
-  -h, --help               Display this help message.
-  -v, --version            Display the version number.
-  --output <path>          Path to the output Markdown file. (default: "repograph.md")
-  --include <pattern>      Glob pattern for files to include. Can be specified multiple times.
-  --ignore <pattern>       Glob pattern for files to ignore. Can be specified multiple times.
-  --no-gitignore           Do not respect .gitignore files.
-  --ranking-strategy <name> The ranking strategy to use. (default: "pagerank", options: "pagerank", "git-changes")
-  --max-workers <num>      Set the maximum number of parallel workers for analysis. (default: 1)
-  --log-level <level>      Set the logging level. (default: "info", options: "silent", "error", "warn", "info", "debug")
-
-Output Formatting:
-  --no-header              Do not include the main "RepoGraph" header.
-  --no-overview            Do not include the project overview section.
-  --no-mermaid             Do not include the Mermaid dependency graph.
-  --no-file-list           Do not include the list of top-ranked files.
-  --no-symbol-details      Do not include the detailed file and symbol breakdown.
-  --top-file-count <num>   Set the number of files in the top list. (default: 10)
-  --file-section-separator <str> Custom separator for file sections. (default: "---")
-  --no-symbol-relations    Hide symbol relationship details (e.g., calls, implements).
-  --no-symbol-line-numbers Hide line numbers for symbols.
-  --no-symbol-snippets     Hide code snippets for symbols.
-  --max-relations-to-show <num> Max number of 'calls' relations to show per symbol. (default: 3)
-    `);
-      process.exit(0);
-    }
-
-    if (args[0] === 'copy-wasm') {
-      const destDir = args[1] || './public/wasm';
-      logger.info(`Copying WASM files to "${path.resolve(destDir)}"...`);
-      await copyWasmFiles(destDir);
-      process.exit(0);
-    }
-
-    if (args.includes('--version') || args.includes('-v')) {
-      const { readFileSync } = await import('node:fs');
-      const pkgPath = new URL('../package.json', import.meta.url);
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      console.log(pkg.version);
-      process.exit(0);
-    }
-
-    const options: any = {};
-    const includePatterns: string[] = [];
-    const ignorePatterns: string[] = [];
-    const rendererOptions: any = {};
-    const symbolDetailOptions: any = {};
-
-    const argConfig: Record<string, (val?: string) => void> = {
-      '--output': val => options.output = val,
-      '--include': val => val && includePatterns.push(val),
-      '--ignore': val => val && ignorePatterns.push(val),
-      '--no-gitignore': () => options.noGitignore = true,
-      '--ranking-strategy': val => options.rankingStrategy = val as any,
-      '--max-workers': val => options.maxWorkers = parseInt(val!, 10),
-      '--log-level': val => options.logLevel = val as any,
-      '--no-header': () => rendererOptions.includeHeader = false,
-      '--no-overview': () => rendererOptions.includeOverview = false,
-      '--no-mermaid': () => rendererOptions.includeMermaidGraph = false,
-      '--no-file-list': () => rendererOptions.includeFileList = false,
-      '--no-symbol-details': () => rendererOptions.includeSymbolDetails = false,
-      '--top-file-count': val => rendererOptions.topFileCount = parseInt(val!, 10),
-      '--file-section-separator': val => rendererOptions.fileSectionSeparator = val,
-      '--no-symbol-relations': () => symbolDetailOptions.includeRelations = false,
-      '--no-symbol-line-numbers': () => symbolDetailOptions.includeLineNumber = false,
-      '--no-symbol-snippets': () => symbolDetailOptions.includeCodeSnippet = false,
-      '--max-relations-to-show': val => symbolDetailOptions.maxRelationsToShow = parseInt(val!, 10),
-    };
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (!arg) continue;
-
-      const handler = argConfig[arg];
-      if (handler) {
-        // Check if handler takes a value
-        if (handler.length === 1) {
-          handler(args[++i]);
-        } else {
-          handler();
-        }
-      } else if (!arg.startsWith('-')) {
-        options.root = arg;
-      }
-    }
-
-    if (includePatterns.length > 0) {
-      options.include = includePatterns;
-    }
-    
-    if (ignorePatterns.length > 0) {
-      options.ignore = ignorePatterns;
-    }
-    
-    if (Object.keys(symbolDetailOptions).length > 0) {
-      rendererOptions.symbolDetailOptions = symbolDetailOptions;
-    }
-    
-    if (Object.keys(rendererOptions).length > 0) {
-      options.rendererOptions = rendererOptions;
-    }
-
-    const finalOutput = path.resolve(options.root || process.cwd(), options.output || 'repograph.md');
-
-    logger.info(`Starting RepoGraph analysis for "${path.resolve(options.root || process.cwd())}"...`);
-
-    try {
-      // Cast to the correct type for execution
-      await executeGenerateMap(options as IRepoGraphOptions);
-      const relativePath = path.relative(process.cwd(), finalOutput);
-      logger.info(`\n✅ Success! RepoGraph map saved to ${relativePath}`);
-    } catch (error: unknown) {
-      if (error instanceof RepoGraphError) {
-        logger.error(`\n❌ Error generating RepoGraph map: ${error.message}`);
-      } else {
-        logger.error('\n❌ An unknown error occurred while generating the RepoGraph map.', error);
-      }
-      process.exit(1);
-    }
-  })().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
-```
-
-## File: repograph/web-demo/src/App.css
-```css
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-#root {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 1rem;
-  width: 100%;
-}
-
-h1 {
-  font-size: 2.2em;
-  line-height: 1.1;
-  margin-block-start: 0;
-  margin-bottom: 1rem;
-  text-align: center;
-}
-
-.main-container {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  height: calc(100vh - 6rem);
-}
-
-.config-panel {
-  background-color: #1e1e1e;
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 1rem;
-  flex-shrink: 0;
-}
-
-.config-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.config-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9em;
-}
-
-.config-item input[type="number"] {
-  width: 60px;
-  padding: 0.25rem;
-  background-color: #2a2a2a;
-  border: 1px solid #555;
-  border-radius: 4px;
-  color: #d4d4d4;
-}
-
-.config-item input[type="checkbox"] {
-  accent-color: #646cff;
-}
-
-.config-info {
-  grid-column: 1 / -1;
-  padding: 0.75rem;
-  background-color: #2a2a2a;
-  border-radius: 4px;
-  font-size: 0.9em;
-  border-left: 3px solid #646cff;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.primary-button {
-  background-color: #646cff;
-  color: white;
-  border: none;
-}
-
-.primary-button:hover:not(:disabled) {
-  background-color: #5a5fcf;
-}
-
-.secondary-button {
-  background-color: #2a2a2a;
-  border: 1px solid #555;
-}
-
-.secondary-button:hover:not(:disabled) {
-  border-color: #777;
-}
-
-.current-metrics {
-  margin-top: 1rem;
-  padding: 1rem;
-  background-color: #2a2a2a;
-  border-radius: 6px;
-}
-
-.current-metrics h4 {
-  margin: 0 0 0.5rem 0;
-  color: #60a5fa;
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 0.5rem;
-  font-size: 0.85em;
-  font-family: monospace;
-}
-
-.container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-  flex: 1;
-  min-height: 0;
-}
-
-.bottom-panels {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 1rem;
-  height: 300px;
-  flex-shrink: 0;
-}
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow: hidden;
-}
-
-textarea {
-  width: 100%;
-  height: 100%;
-  resize: none;
-  background-color: #1e1e1e;
-  border: 1px solid #444;
-  border-radius: 8px;
-  color: #d4d4d4;
-  font-family: monospace;
-  font-size: 14px;
-  padding: 1rem;
-  box-sizing: border-box;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-.output-panel, .logs-panel {
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 1rem;
-  overflow-y: auto;
-  background-color: #1e1e1e;
-}
-
-.logs-panel {
-    height: 100%;
-    flex-shrink: 0;
-}
-
-.log-entry {
-  font-family: monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  padding: 2px 4px;
-  border-radius: 4px;
-  display: flex;
-  gap: 0.5rem;
-  font-size: 0.8em;
-}
-
-.log-timestamp {
-  color: #888;
-  flex-shrink: 0;
-}
-
-.log-level {
-  flex-shrink: 0;
-  font-weight: bold;
-}
-
-.log-message {
-  flex: 1;
-}
-
-.log-error { color: #f87171; background-color: #450a0a; }
-.log-warn { color: #facc15; background-color: #422006; }
-.log-info { color: #60a5fa; }
-.log-debug { color: #888; }
-
-.metrics-history {
-  height: 100%;
-  overflow-y: auto;
-}
-
-.metrics-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8em;
-  font-family: monospace;
-}
-
-.metrics-table th,
-.metrics-table td {
-  padding: 0.5rem;
-  text-align: left;
-  border-bottom: 1px solid #444;
-}
-
-.metrics-table th {
-  background-color: #2a2a2a;
-  font-weight: bold;
-  position: sticky;
-  top: 0;
-}
-
-.metrics-table tr.latest {
-  background-color: #2a2a2a;
-  font-weight: bold;
-}
-
-.metrics-table tr:hover {
-  background-color: #333;
-}
-
-pre {
-    background-color: #2d2d2d !important;
-    border-radius: 4px;
-    padding: 1em !important;
-}
-```
-
-## File: repograph/web-demo/src/App.tsx
-```typescript
-import { useState, useEffect, useCallback, useRef, type FC } from 'react';
-
-// Declare global TreeSitterModule for TypeScript
-declare global {
-  interface Window {
-    TreeSitterModule?: {
-      locateFile?: (path: string) => string;
-    };
-  }
-}
-import {
-  initializeParser,
-  analyzeProject,
-  createMarkdownRenderer,
-  logger,
-  type FileContent,
-  type LogLevel,
-} from 'repograph';
-import ReactMarkdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import remarkGfm from 'remark-gfm';
-
-const defaultInput = JSON.stringify(
-  [
-    {
-      path: 'src/components/Button.tsx',
-      content: `import React from 'react';\nimport { styled } from '../styles';\nimport { useApi } from '../hooks/useApi';\n\ninterface ButtonProps {\n  onClick?: () => void;\n  children: React.ReactNode;\n  variant?: 'primary' | 'secondary';\n}\n\nexport const Button: React.FC<ButtonProps> = ({ onClick, children, variant = 'primary' }) => {\n  const { isLoading } = useApi();\n  \n  return (\n    <StyledButton \n      onClick={onClick} \n      disabled={isLoading}\n      className={\`btn btn-\${variant}\`}\n    >\n      {children}\n    </StyledButton>\n  );\n};\n\nconst StyledButton = styled.button\`\n  padding: 0.5rem 1rem;\n  border-radius: 4px;\n  border: none;\n  cursor: pointer;\n  \n  &.btn-primary {\n    background-color: #007bff;\n    color: white;\n  }\n  \n  &.btn-secondary {\n    background-color: #6c757d;\n    color: white;\n  }\n  \n  &:disabled {\n    opacity: 0.6;\n    cursor: not-allowed;\n  }\n\`;`,
-    },
-    {
-      path: 'src/styles.ts',
-      content: `import styled from 'styled-components';\n\nexport { styled };\n\nexport const theme = {\n  colors: {\n    primary: '#007bff',\n    secondary: '#6c757d',\n    success: '#28a745',\n    danger: '#dc3545',\n    warning: '#ffc107',\n    info: '#17a2b8',\n  },\n  spacing: {\n    xs: '0.25rem',\n    sm: '0.5rem',\n    md: '1rem',\n    lg: '1.5rem',\n    xl: '2rem',\n  },\n  breakpoints: {\n    sm: '576px',\n    md: '768px',\n    lg: '992px',\n    xl: '1200px',\n  },\n};\n\nexport type Theme = typeof theme;`,
-    },
-    {
-      path: 'src/api/client.ts',
-      content: `export interface ApiResponse<T> {\n  data: T;\n  status: number;\n  message?: string;\n}\n\nexport interface User {\n  id: number;\n  name: string;\n  email: string;\n  role: 'admin' | 'user';\n}\n\nexport class ApiClient {\n  private baseUrl: string;\n  private token?: string;\n\n  constructor(baseUrl: string = '/api') {\n    this.baseUrl = baseUrl;\n  }\n\n  setToken(token: string): void {\n    this.token = token;\n  }\n\n  private async request<T>(\n    endpoint: string,\n    options: RequestInit = {}\n  ): Promise<ApiResponse<T>> {\n    const url = \`\${this.baseUrl}\${endpoint}\`;\n    const headers = {\n      'Content-Type': 'application/json',\n      ...(this.token && { Authorization: \`Bearer \${this.token}\` }),\n      ...options.headers,\n    };\n\n    const response = await fetch(url, {\n      ...options,\n      headers,\n    });\n\n    const data = await response.json();\n    \n    return {\n      data,\n      status: response.status,\n      message: data.message,\n    };\n  }\n\n  async getUsers(): Promise<ApiResponse<User[]>> {\n    return this.request<User[]>('/users');\n  }\n\n  async getUser(id: number): Promise<ApiResponse<User>> {\n    return this.request<User>(\`/users/\${id}\`);\n  }\n\n  async createUser(user: Omit<User, 'id'>): Promise<ApiResponse<User>> {\n    return this.request<User>('/users', {\n      method: 'POST',\n      body: JSON.stringify(user),\n    });\n  }\n\n  async updateUser(id: number, user: Partial<User>): Promise<ApiResponse<User>> {\n    return this.request<User>(\`/users/\${id}\`, {\n      method: 'PUT',\n      body: JSON.stringify(user),\n    });\n  }\n\n  async deleteUser(id: number): Promise<ApiResponse<void>> {\n    return this.request<void>(\`/users/\${id}\`, {\n      method: 'DELETE',\n    });\n  }\n}`
-    },
-    {
-      path: 'src/hooks/useApi.ts',
-      content: `import { useState, useEffect, useCallback } from 'react';\nimport { ApiClient } from '../api/client';\n\nconst apiClient = new ApiClient();\n\nexport interface UseApiState<T> {\n  data: T | null;\n  isLoading: boolean;\n  error: string | null;\n}\n\nexport function useApi<T>() {\n  const [state, setState] = useState<UseApiState<T>>({\n    data: null,\n    isLoading: false,\n    error: null,\n  });\n\n  const execute = useCallback(async (apiCall: () => Promise<T>) => {\n    setState(prev => ({ ...prev, isLoading: true, error: null }));\n    \n    try {\n      const result = await apiCall();\n      setState({ data: result, isLoading: false, error: null });\n      return result;\n    } catch (error) {\n      const errorMessage = error instanceof Error ? error.message : 'An error occurred';\n      setState({ data: null, isLoading: false, error: errorMessage });\n      throw error;\n    }\n  }, []);\n\n  return {\n    ...state,\n    execute,\n    client: apiClient,\n  };\n}`
-    },
-    {
-      path: 'src/components/UserList.tsx',
-      content: `import React, { useEffect } from 'react';\nimport { Button } from './Button';\nimport { useApi } from '../hooks/useApi';\nimport type { User } from '../api/client';\n\ninterface UserListProps {\n  onUserSelect?: (user: User) => void;\n}\n\nexport const UserList: React.FC<UserListProps> = ({ onUserSelect }) => {\n  const { data: users, isLoading, error, execute, client } = useApi<User[]>();\n\n  useEffect(() => {\n    loadUsers();\n  }, []);\n\n  const loadUsers = async () => {\n    try {\n      const response = await execute(() => client.getUsers());\n      return response.data;\n    } catch (error) {\n      console.error('Failed to load users:', error);\n    }\n  };\n\n  const handleDeleteUser = async (userId: number) => {\n    if (!confirm('Are you sure you want to delete this user?')) return;\n    \n    try {\n      await execute(() => client.deleteUser(userId));\n      await loadUsers(); // Refresh the list\n    } catch (error) {\n      console.error('Failed to delete user:', error);\n    }\n  };\n\n  if (isLoading) {\n    return <div className=\"loading\">Loading users...</div>;\n  }\n\n  if (error) {\n    return (\n      <div className=\"error\">\n        <p>Error: {error}</p>\n        <Button onClick={loadUsers}>Retry</Button>\n      </div>\n    );\n  }\n\n  return (\n    <div className=\"user-list\">\n      <div className=\"user-list-header\">\n        <h2>Users</h2>\n        <Button onClick={loadUsers}>Refresh</Button>\n      </div>\n      \n      {users && users.length > 0 ? (\n        <ul className=\"users\">\n          {users.map(user => (\n            <li key={user.id} className=\"user-item\">\n              <div className=\"user-info\">\n                <h3>{user.name}</h3>\n                <p>{user.email}</p>\n                <span className={\`role role-\${user.role}\`}>{user.role}</span>\n              </div>\n              <div className=\"user-actions\">\n                <Button \n                  variant=\"secondary\" \n                  onClick={() => onUserSelect?.(user)}\n                >\n                  Edit\n                </Button>\n                <Button \n                  variant=\"secondary\" \n                  onClick={() => handleDeleteUser(user.id)}\n                >\n                  Delete\n                </Button>\n              </div>\n            </li>\n          ))}\n        </ul>\n      ) : (\n        <p>No users found.</p>\n      )}\n    </div>\n  );\n};`
-    },
-    {
-      path: 'src/App.tsx',
-      content: `import React, { useState } from 'react';\nimport { Button } from './components/Button';\nimport { UserList } from './components/UserList';\nimport type { User } from './api/client';\nimport './App.css';\n\nexport const App: React.FC = () => {\n  const [selectedUser, setSelectedUser] = useState<User | null>(null);\n  const [showUserList, setShowUserList] = useState(true);\n\n  const handleUserSelect = (user: User) => {\n    setSelectedUser(user);\n    setShowUserList(false);\n  };\n\n  const handleBackToList = () => {\n    setSelectedUser(null);\n    setShowUserList(true);\n  };\n\n  return (\n    <div className=\"app\">\n      <header className=\"app-header\">\n        <h1>User Management System</h1>\n        <nav>\n          <Button \n            variant={showUserList ? 'primary' : 'secondary'}\n            onClick={() => setShowUserList(true)}\n          >\n            Users\n          </Button>\n          <Button \n            variant={!showUserList ? 'primary' : 'secondary'}\n            onClick={() => setShowUserList(false)}\n          >\n            Settings\n          </Button>\n        </nav>\n      </header>\n\n      <main className=\"app-main\">\n        {showUserList ? (\n          <UserList onUserSelect={handleUserSelect} />\n        ) : (\n          <div className=\"settings\">\n            <h2>Settings</h2>\n            <p>Settings panel coming soon...</p>\n            <Button onClick={handleBackToList}>Back to Users</Button>\n          </div>\n        )}\n      </main>\n\n      <footer className=\"app-footer\">\n        <p>&copy; 2024 User Management System</p>\n      </footer>\n    </div>\n  );\n};`
-    }
-  ],
-  null,
-  2
-);
-
-type LogEntry = {
-  level: LogLevel | 'log';
-  args: any[];
-  timestamp: number;
-}
-
-type PerformanceMetrics = {
-  startTime: number;
-  endTime: number;
-  duration: number;
-  filesProcessed: number;
-  nodesFound: number;
-  edgesFound: number;
-  maxWorkers: number;
-  workerMode: 'sequential' | 'worker' | 'web-worker';
-}
-
-type WorkerConfig = {
-  maxWorkers: number;
-  stressTestEnabled: boolean;
-  stressTestMultiplier: number;
-}
-
-const MarkdownRenderer: FC<{ children: string }> = ({ children }) => {
-  return (
-    <ReactMarkdown
-      children={children}
-      remarkPlugins={[remarkGfm]}
-      components={{
-        code({ node, inline, className, children, ...props }: any) {
-          const match = /language-(\w+)/.exec(className || '');
-          return !inline && match ? (
-            <SyntaxHighlighter
-              {...props}
-              children={String(children).replace(/\n$/, '')}
-              style={vscDarkPlus as any}
-              language={match[1]}
-              PreTag="div"
-            />
-          ) : (
-            <code {...props} className={className}>
-              {children}
-            </code>
-          );
-        },
-      }}
-    />
-  );
-};
-
-
-function App() {
-  const [input, setInput] = useState(defaultInput);
-  const [output, setOutput] = useState('');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [workerConfig, setWorkerConfig] = useState<WorkerConfig>({
-    maxWorkers: 1,
-    stressTestEnabled: false,
-    stressTestMultiplier: 1,
-  });
-  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics[]>([]);
-  const [currentMetrics, setCurrentMetrics] = useState<PerformanceMetrics | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  
-  useEffect(() => {
-    logger.setLevel('debug');
-
-    const originalConsole = { ...console };
-    const intercept = (level: LogLevel | 'log', ...args: any[]) => {
-      (originalConsole as any)[level](...args);
-      setLogs(prev => [...prev, { level, args, timestamp: Date.now() }]);
-    };
-
-    console.log = (...args) => intercept('log', ...args);
-    console.info = (...args) => intercept('info', ...args);
-    console.warn = (...args) => intercept('warn', ...args);
-    console.error = (...args) => intercept('error', ...args);
-    console.debug = (...args) => intercept('debug', ...args);
-
-    return () => {
-      Object.assign(console, originalConsole);
-    };
-  }, []);
-
-  const handleAnalyze = useCallback(async () => {
-    // Cancel any ongoing analysis
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-    
-    setIsAnalyzing(true);
-    setOutput('');
-    setLogs([]);
-    
-    const startTime = performance.now();
-    console.info('Starting analysis...', { workerConfig });
-
-    try {
-      let files: FileContent[] = JSON.parse(input);
-      if (!Array.isArray(files) || !files.every(f => f.path && typeof f.content === 'string')) {
-          throw new Error('Invalid input format. Must be an array of {path: string, content: string}');
-      }
-
-      // Apply stress test multiplier if enabled
-      if (workerConfig.stressTestEnabled && workerConfig.stressTestMultiplier > 1) {
-        const originalFiles = [...files];
-        files = [];
-        for (let i = 0; i < workerConfig.stressTestMultiplier; i++) {
-          const multipliedFiles = originalFiles.map(f => ({
-            ...f,
-            path: `stress-${i}/${f.path}`,
-          }));
-          files.push(...multipliedFiles);
-        }
-        console.info(`Stress test enabled: multiplied ${originalFiles.length} files by ${workerConfig.stressTestMultiplier} = ${files.length} total files`);
-      }
-      
-      if (signal.aborted) throw new Error('Analysis cancelled');
-      
-      console.info('Initializing parser...');
-      await initializeParser({ wasmBaseUrl: '/wasm/' });
-      console.info('Parser initialized.');
-
-      if (signal.aborted) throw new Error('Analysis cancelled');
-
-      const maxWorkers = workerConfig.maxWorkers;
-      const workerMode = maxWorkers > 1 ? 'worker' : 'sequential';
-
-      console.info(`Analyzing ${files.length} files with ${maxWorkers} workers (mode: ${workerMode})...`);
-      
-      const analysisStartTime = performance.now();
-      const rankedGraph = await analyzeProject({
-        files,
-        rankingStrategy: 'pagerank',
-        maxWorkers,
-      });
-      const analysisEndTime = performance.now();
-      
-      if (signal.aborted) throw new Error('Analysis cancelled');
-      
-      console.info(`Analysis complete. Found ${rankedGraph.nodes.size} nodes, ${rankedGraph.edges.length} edges.`);
-
-      console.info('Rendering output...');
-      const renderer = createMarkdownRenderer();
-      const markdown = renderer(rankedGraph, {
-        includeMermaidGraph: true,
-      });
-      setOutput(markdown);
-      console.info('Render complete.');
-
-      const endTime = performance.now();
-      const metrics: PerformanceMetrics = {
-        startTime,
-        endTime,
-        duration: endTime - startTime,
-        filesProcessed: files.length,
-        nodesFound: rankedGraph.nodes.size,
-        edgesFound: rankedGraph.edges.length,
-        maxWorkers,
-        workerMode,
-      };
-      
-      setCurrentMetrics(metrics);
-      setPerformanceMetrics(prev => [...prev, metrics]);
-      
-      console.info('Performance metrics:', {
-        totalDuration: `${metrics.duration.toFixed(2)}ms`,
-        analysisDuration: `${(analysisEndTime - analysisStartTime).toFixed(2)}ms`,
-        filesPerSecond: (files.length / (metrics.duration / 1000)).toFixed(2),
-        nodesPerSecond: (rankedGraph.nodes.size / (metrics.duration / 1000)).toFixed(2),
-      });
-
-    } catch (e: any) {
-      if (e.message === 'Analysis cancelled') {
-        console.warn('Analysis was cancelled');
-        setOutput(`# Analysis Cancelled\n\nThe analysis was cancelled by the user.`);
-      } else {
-        console.error('Analysis failed:', e.message, e);
-        setOutput(`# Analysis Failed\n\n**Error:**\n\`\`\`\n${e.stack || e.message}\n\`\`\``);
-      }
-    } finally {
-      setIsAnalyzing(false);
-      abortControllerRef.current = null;
-    }
-  }, [input, workerConfig]);
-
-  const handleCancel = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-  }, []);
-
-  const handleClearMetrics = useCallback(() => {
-    setPerformanceMetrics([]);
-    setCurrentMetrics(null);
-  }, []);
-
-  const handleRunBenchmark = useCallback(async () => {
-    const workerCounts = [1, 2, 4, 8];
-    const originalConfig = { ...workerConfig };
-
-    for (const maxWorkers of workerCounts) {
-      if (abortControllerRef.current?.signal.aborted) break;
-      
-      setWorkerConfig(prev => ({ ...prev, maxWorkers }));
-      await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
-      await handleAnalyze();
-      await new Promise(resolve => setTimeout(resolve, 500)); // Pause between runs
-    }
-    
-    // Restore original config
-    setWorkerConfig(originalConfig);
-  }, [workerConfig, handleAnalyze]);
-
-  return (
-    <>
-      <h1>RepoGraph Web Demo - Worker Battle Test</h1>
-      <div className="main-container">
-        <div className="config-panel">
-          <h3>RepoGraph Worker Battle Test Configuration</h3>
-          <div className="config-grid">
-            <label className="config-item">
-              Max Workers:
-              <input
-                type="number"
-                min="1"
-                max="8"
-                value={workerConfig.maxWorkers}
-                onChange={e => setWorkerConfig(prev => ({ ...prev, maxWorkers: parseInt(e.target.value) || 1 }))}
-                title="Number of worker threads for parallel analysis (1 = sequential)"
-              />
-            </label>
-            
-            <label className="config-item">
-              <input
-                type="checkbox"
-                checked={workerConfig.stressTestEnabled}
-                onChange={e => setWorkerConfig(prev => ({ ...prev, stressTestEnabled: e.target.checked }))}
-              />
-              Stress Test Mode
-            </label>
-            
-            <label className="config-item">
-              File Multiplier:
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={workerConfig.stressTestMultiplier}
-                onChange={e => setWorkerConfig(prev => ({ ...prev, stressTestMultiplier: parseInt(e.target.value) || 1 }))}
-                disabled={!workerConfig.stressTestEnabled}
-                title="Multiply input files by this factor for stress testing"
-              />
-            </label>
-            
-            <div className="config-info">
-              <strong>Current Mode:</strong> {workerConfig.maxWorkers > 1 ? `Parallel (${workerConfig.maxWorkers} workers)` : 'Sequential'}
-              {workerConfig.stressTestEnabled && (
-                <span> | Stress Test: {workerConfig.stressTestMultiplier}x files</span>
-              )}
-            </div>
-          </div>
-          
-          <div className="action-buttons">
-            <button onClick={handleAnalyze} disabled={isAnalyzing} className="primary-button">
-              {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-            </button>
-            <button onClick={handleCancel} disabled={!isAnalyzing} className="secondary-button">
-              Cancel
-            </button>
-            <button onClick={handleRunBenchmark} disabled={isAnalyzing} className="secondary-button">
-              Run Worker Benchmark (1,2,4,8 workers)
-            </button>
-            <button onClick={handleClearMetrics} className="secondary-button">
-              Clear Metrics
-            </button>
-          </div>
-          
-          {currentMetrics && (
-            <div className="current-metrics">
-              <h4>Last Run Metrics</h4>
-              <div className="metrics-grid">
-                <span>Duration: {currentMetrics.duration.toFixed(2)}ms</span>
-                <span>Files: {currentMetrics.filesProcessed}</span>
-                <span>Nodes: {currentMetrics.nodesFound}</span>
-                <span>Edges: {currentMetrics.edgesFound}</span>
-                <span>Workers: {currentMetrics.maxWorkers}</span>
-                <span>Mode: {currentMetrics.workerMode}</span>
-                <span>Files/sec: {(currentMetrics.filesProcessed / (currentMetrics.duration / 1000)).toFixed(2)}</span>
-                <span>Nodes/sec: {(currentMetrics.nodesFound / (currentMetrics.duration / 1000)).toFixed(2)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="container">
-          <div className="panel">
-              <h3>Input Files (JSON format)</h3>
-              <textarea
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder="Enter FileContent[] as JSON string..."
-                  spellCheck="false"
-              />
-          </div>
-          <div className="panel">
-              <h3>Output Markdown</h3>
-              <div className="output-panel">
-                  <MarkdownRenderer>{output}</MarkdownRenderer>
-              </div>
-          </div>
-        </div>
-        
-        <div className="bottom-panels">
-          <div className="panel">
-            <h3>Performance History</h3>
-            <div className="metrics-history">
-              {performanceMetrics.length === 0 ? (
-                <p>No metrics yet. Run an analysis to see performance data.</p>
-              ) : (
-                <table className="metrics-table">
-                  <thead>
-                    <tr>
-                      <th>Run</th>
-                      <th>Mode</th>
-                      <th>Workers</th>
-                      <th>Files</th>
-                      <th>Duration (ms)</th>
-                      <th>Nodes</th>
-                      <th>Files/sec</th>
-                      <th>Nodes/sec</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {performanceMetrics.map((metric, i) => (
-                      <tr key={i} className={i === performanceMetrics.length - 1 ? 'latest' : ''}>
-                        <td>{i + 1}</td>
-                        <td>{metric.workerMode}</td>
-                        <td>{metric.maxWorkers}</td>
-                        <td>{metric.filesProcessed}</td>
-                        <td>{metric.duration.toFixed(2)}</td>
-                        <td>{metric.nodesFound}</td>
-                        <td>{(metric.filesProcessed / (metric.duration / 1000)).toFixed(2)}</td>
-                        <td>{(metric.nodesFound / (metric.duration / 1000)).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-          
-          <div className="panel">
-              <h3>Logs</h3>
-              <div className="logs-panel">
-                  {logs.map((log, i) => (
-                      <div key={i} className={`log-entry log-${log.level}`}>
-                          <span className="log-timestamp">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                          <span className="log-level">[{log.level.toUpperCase()}]</span>
-                          <span className="log-message">{log.args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ')}</span>
-                      </div>
-                  ))}
-              </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-export default App;
-```
-
-## File: repograph/web-demo/src/main.tsx
-```typescript
-// Configure web-tree-sitter before any other imports
-(window as any).TreeSitterModule = {
-  locateFile: (path: string) => {
-    console.log(`[DEBUG] Global locateFile called with: ${path}`);
-    if (path === 'tree-sitter.wasm') {
-      return '/tree-sitter.wasm';
-    }
-    return path;
-  }
-};
-
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import './App.css'
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-)
-```
-
-## File: repograph/web-demo/index.html
-```html
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RepoGraph Web Demo</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-```
-
-## File: repograph/web-demo/package.json
-```json
-{
-  "name": "repograph-web-demo",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "get-wasm": "repograph copy-wasm ./public/wasm"
-  },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-markdown": "^9.0.1",
-    "react-syntax-highlighter": "^15.5.0",
-    "remark-gfm": "^4.0.0",
-    "repograph": "file:.."
-  },
-  "devDependencies": {
-    "@types/react": "^18.2.66",
-    "@types/react-dom": "^18.2.22",
-    "@types/react-syntax-highlighter": "^15.5.13",
-    "@vitejs/plugin-react": "^4.2.1",
-    "typescript": "^5.2.2",
-    "vite": "^5.2.0"
-  }
-}
-```
-
-## File: repograph/web-demo/tsconfig.json
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-
-    // Path mapping for local development
-    "baseUrl": ".",
-    "paths": {
-      "repograph": ["../src/index.ts"]
-    },
-
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-
-    /* Linting */
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["src"],
-  "references": [{ "path": "./tsconfig.node.json" }]
-}
-```
-
-## File: repograph/web-demo/tsconfig.node.json
-```json
-{
-  "compilerOptions": {
-    "composite": true,
-    "skipLibCheck": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true
-  },
-  "include": ["vite.config.ts"]
-}
-```
-
-## File: repograph/web-demo/vite.config.ts
-```typescript
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
-// import wasm from 'vite-plugin-wasm'
-// import topLevelAwait from 'vite-plugin-top-level-await'
-
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [
-    react(),
-    // wasm(),
-    // topLevelAwait()
-  ],
-  optimizeDeps: {
-    exclude: ['repograph', 'web-tree-sitter']
-  },
-  resolve: {
-    alias: {
-      'repograph': path.resolve(__dirname, '../dist/browser.js')
-    }
-  },
-  define: {
-    global: 'globalThis',
-    'process.env': {},
-    'process.platform': '"browser"',
-    'process.version': '"v18.0.0"'
-  },
-  server: {
-    fs: {
-      allow: ['..']
-    },
-    headers: {
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-      'Cross-Origin-Opener-Policy': 'same-origin',
-    }
-  },
-  worker: {
-    plugins: () => [
-      // wasm(),
-      // topLevelAwait()
-    ]
-  },
-  assetsInclude: ['**/*.wasm'],
-  publicDir: 'public'
-})
-```
-
-## File: repograph/package.json
-```json
-{
-  "name": "repograph",
-  "version": "0.1.19",
-  "description": "Your Codebase, Visualized. Generate rich, semantic, and interactive codemaps with a functional, composable API.",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "repograph": "./dist/index.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsup",
-    "prepublishOnly": "npm run build",
-    "dev": "tsup --watch",
-    "test": "bun run test/run-tests.ts",
-    "test:unit": "bun run test/run-tests.ts unit",
-    "test:integration": "bun run test/run-tests.ts integration",
-    "test:e2e": "bun run test/run-tests.ts e2e",
-    "test:watch": "bun test --watch test/**/*.test.ts",
-    "test:coverage": "bun test --coverage test/**/*.test.ts",
-    "test:basic": "bun test test-basic.js",
-    "lint": "eslint . --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\""
-  },
-  "dependencies": {
-    "tinypool": "^0.8.2",
-    "@types/js-yaml": "^4.0.9",
-    "globby": "^14.1.0",
-    "graphology": "^0.26.0",
-    "graphology-pagerank": "^1.1.0",
-    "js-yaml": "^4.1.0",
-    "tree-sitter-c": "^0.24.1",
-    "tree-sitter-c-sharp": "^0.23.1",
-    "tree-sitter-cpp": "^0.23.4",
-    "tree-sitter-css": "^0.23.2",
-    "tree-sitter-go": "^0.23.4",
-    "tree-sitter-java": "^0.23.5",
-    "tree-sitter-php": "^0.23.12",
-    "tree-sitter-python": "^0.23.6",
-    "tree-sitter-ruby": "^0.23.1",
-    "tree-sitter-rust": "^0.24.0",
-    "tree-sitter-solidity": "^1.2.11",
-    "tree-sitter-swift": "^0.7.1",
-    "tree-sitter-typescript": "^0.23.2",
-    "tree-sitter-vue": "^0.2.1",
-    "web-tree-sitter": "^0.25.6"
-  },
-  "devDependencies": {
-    "@types/node": "^20.12.12",
-    "bun-types": "^1.1.12",
-    "eslint": "^8.57.0",
-    "prettier": "^3.2.5",
-    "tsup": "^8.0.2",
-    "typescript": "^5.4.5"
-  },
-  "keywords": [
-    "codemap",
-    "graph",
-    "visualization",
-    "code-analysis",
-    "tree-sitter",
-    "repo-analysis",
-    "ai-context",
-    "bun",
-    "functional-programming"
-  ],
-  "author": "RelayCoder <you@example.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/relaycoder/repograph.git"
-  },
-  "homepage": "https://github.com/relaycoder/repograph#readme",
-  "bugs": {
-    "url": "https://github.com/relaycoder/repograph/issues"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "bun": ">=1.0.0"
-  }
-}
-```
-
-## File: repograph/tsconfig.json
-```json
-{
-  "compilerOptions": {
-    // Environment setup & latest features
-    "lib": ["ESNext", "DOM"],
-    "target": "ESNext",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "jsx": "react-jsx",
-    "allowJs": true,
-
-    // Bundler mode
-    "moduleResolution": "bundler",
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-
-    // Best practices
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitAny": true,
-    "noPropertyAccessFromIndexSignature": true,
-
-    // Include bun types
-    "types": ["bun-types"]
-  },
-  "include": [
-    "src/**/*",
-    "test/**/*",
-    "web-demo/src/**/*",
-    "bun.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "docs",
-    ".relay",
-    ".relaycode"
-  ]
-}
-```
-
-## File: repograph/tsup.config.ts
-```typescript
-import { defineConfig } from 'tsup';
-import { copyFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
-
-export default defineConfig({
-  entry: ['src/index.ts', 'src/browser.ts', 'src/pipeline/analyzer.worker.ts'],
-  format: ['esm', 'cjs'],
-  target: 'es2022',
-  dts: true,
-  sourcemap: true,
-  clean: true,
-  splitting: false, // Disable splitting for CJS compatibility
-  treeshake: true,
-  minify: false,
-  outDir: 'dist',
-  onSuccess: async () => {
-    // Copy WASM files to dist folder
-    const wasmDir = join('dist', 'wasm');
-    if (!existsSync(wasmDir)) {
-      mkdirSync(wasmDir, { recursive: true });
-    }
-
-    const wasmFiles = [
-      'tree-sitter-typescript/tree-sitter-typescript.wasm',
-      'tree-sitter-typescript/tree-sitter-tsx.wasm',
-      'tree-sitter-javascript/tree-sitter-javascript.wasm',
-      'tree-sitter-python/tree-sitter-python.wasm',
-      'tree-sitter-java/tree-sitter-java.wasm',
-      'tree-sitter-c/tree-sitter-c.wasm',
-      'tree-sitter-cpp/tree-sitter-cpp.wasm',
-      'tree-sitter-c-sharp/tree-sitter-c_sharp.wasm',
-      'tree-sitter-css/tree-sitter-css.wasm',
-      'tree-sitter-go/tree-sitter-go.wasm',
-      'tree-sitter-php/tree-sitter-php.wasm',
-      'tree-sitter-ruby/tree-sitter-ruby.wasm',
-      'tree-sitter-rust/tree-sitter-rust.wasm',
-      'tree-sitter-solidity/tree-sitter-solidity.wasm',
-      'tree-sitter-swift/tree-sitter-swift.wasm',
-      'tree-sitter-vue/tree-sitter-vue.wasm',
-    ];
-
-    for (const wasmFile of wasmFiles) {
-      const srcPath = join('node_modules', wasmFile);
-      const wasmFileName = wasmFile.split('/')[1];
-      if (!wasmFileName) {
-        console.warn(`Skipping invalid wasmFile path: ${wasmFile}`);
-        continue;
-      }
-      const destPath = join('dist', 'wasm', wasmFileName);
-      
-      if (existsSync(srcPath)) {
-        copyFileSync(srcPath, destPath);
-        console.log(`Copied ${wasmFileName} to dist/wasm/`);
-      }
-    }
-  },
-});
-```
 
 ## File: src/cli.ts
 ```typescript
@@ -1692,8 +375,6 @@ export type {
   // Logger types
   Logger,
   LogLevel,
-  // Parser types
-  ParserInitializationOptions,
 } from 'repograph';
 ```
 
@@ -2278,6 +959,1271 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
 };
 ```
 
+## File: test/ts/e2e/cli.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile } from 'fs/promises';
+import { join, resolve } from 'path';
+import { version } from '../../../package.json';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+
+describe('SCN Generation: 3. Command-Line Interface (CLI)', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should process glob patterns provided as arguments and print to stdout', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+      'b.ts': 'export const B = 2;',
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts'], {
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    await proc.exited;
+    const exitCode = proc.exitCode;
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ts');
+    expect(stderr).toContain('[SCN-TS] Analyzing project...');
+  });
+  
+  it('should write the output to the file specified by --output', async () => {
+    project = await setupTestProject({ 'a.ts': 'export const A = 1;' });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'a.ts', '--output', outputPath], {
+      cwd: project.projectDir,
+    });
+    
+    await proc.exited;
+    
+    const outputContent = await readFile(outputPath, 'utf-8');
+    expect(outputContent).toContain('§ (1) a.ts');
+  });
+
+  it('should respect the tsconfig file specified by --project', async () => {
+    project = await setupTestProject({
+      'Comp.tsx': 'export const C = () => <div />',
+      'tsconfig.test.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
+    });
+
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'Comp.tsx', '-p', 'tsconfig.test.json'], {
+      cwd: project.projectDir,
+    });
+    
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    expect(proc.exitCode).toBe(0);
+    expect(stdout).toContain('◇ (1.1) C');
+  });
+
+  it('should display the correct version with --version', async () => {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--version']);
+    const stdout = await new Response(proc.stdout).text();
+    expect(stdout.trim()).toBe(version);
+  });
+  
+  it('should display the help screen with --help', async () => {
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '--help']);
+    const stdout = await new Response(proc.stdout).text();
+    expect(stdout).toContain('Usage:');
+    expect(stdout).toContain('--output <path>');
+  });
+  
+  it('should exit with a non-zero code on error', async () => {
+    project = await setupTestProject({}); // Empty project
+    
+    // Test with no input files specified - this should trigger the error
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], {
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+
+    const stderr = await new Response(proc.stderr).text();
+    await proc.exited;
+    const exitCode = proc.exitCode;
+    
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain('Error: No input files specified');
+  });
+});
+```
+
+## File: test/ts/e2e/config-file.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile } from 'fs/promises';
+import { join, resolve } from 'path';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+
+describe('SCN Generation: 4. Configuration (scn.config.js)', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+  
+  it('should automatically find and load scn.config.js from the project root', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['a.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    
+    expect(proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ts');
+  });
+  
+  it('should correctly apply `exclude` patterns from the config', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ignore.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['**/*.ts'], exclude: ['**/*.ignore.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    
+    expect(proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+    expect(stdout).not.toContain('b.ignore.ts');
+  });
+
+  it('should write to the `output` path specified in the config', async () => {
+    const outputPath = 'dist/output.scn';
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'scn.config.js': `import {mkdirSync} from 'fs'; mkdirSync('dist'); export default { include: ['a.ts'], output: '${outputPath}' };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    await proc.exited;
+
+    expect(proc.exitCode).toBe(0);
+    const outputContent = await readFile(join(project.projectDir, outputPath), 'utf-8');
+    expect(outputContent).toContain('§ (1) a.ts');
+  });
+
+  it('should override config file settings with CLI flags', async () => {
+    const configOutputPath = 'config-output.scn';
+    const cliOutputPath = 'cli-output.scn';
+    
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'b.ts': 'const b = 2;',
+      'scn.config.js': `export default { include: ['a.ts'], output: '${configOutputPath}' };`,
+    });
+    
+    // Override both `include` and `output`
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, 'b.ts', '-o', cliOutputPath], {
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    await proc.exited;
+
+    expect(proc.exitCode).toBe(0);
+
+    // Check that the CLI output path was used and has the correct content
+    const cliOutputContent = await readFile(join(project.projectDir, cliOutputPath), 'utf-8');
+    expect(cliOutputContent).toContain('§ (1) b.ts');
+    expect(cliOutputContent).not.toContain('a.ts');
+
+    // Check that the config output path was NOT created
+    await expect(readFile(join(project.projectDir, configOutputPath), 'utf-8')).rejects.toThrow();
+  });
+
+  it('should respect the config file specified by --config or -c', async () => {
+    project = await setupTestProject({
+      'a.ts': 'const a = 1;',
+      'config/my.config.js': `export default { include: ['a.ts'] };`,
+    });
+    
+    const proc = Bun.spawn(['bun', 'run', CLI_PATH, '-c', 'config/my.config.js'], { 
+      cwd: project.projectDir,
+      stderr: 'pipe',
+      stdout: 'pipe',
+    });
+    const stdout = await new Response(proc.stdout).text();
+    await proc.exited;
+    
+    expect(proc.exitCode).toBe(0);
+    expect(stdout).toContain('§ (1) a.ts');
+  });
+});
+```
+
+## File: test/ts/e2e/filesystem.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { readFile, writeFile, rm } from 'fs/promises';
+import { join, resolve } from 'path';
+
+// Path to the CLI script in the main workspace
+const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+
+// Helper to wait for a file to contain specific content
+async function waitForFileContent(filePath: string, expectedContent: string, timeout = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      if (content.includes(expectedContent)) {
+        return;
+      }
+    } catch {
+      // File might not exist yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 100)); // Poll every 100ms
+  }
+  throw new Error(`Timeout waiting for "${expectedContent}" in ${filePath}`);
+}
+
+describe('SCN Generation: 5. File System & Watch Mode', () => {
+  let project: TestProject | undefined;
+  let watcherProc: ReturnType<typeof Bun.spawn> | undefined;
+
+  afterEach(async () => {
+    if (watcherProc) {
+      watcherProc.kill();
+      watcherProc = undefined;
+    }
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('--watch: should perform an initial scan and re-generate when a file is modified', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'A = 1');
+    const initialContent = await readFile(outputPath, 'utf-8');
+    expect(initialContent).toContain('§ (1) a.ts');
+    expect(initialContent).toContain('◇ (1.1) A = 1');
+    
+    // 2. Modify the file
+    await writeFile(join(project.projectDir, 'a.ts'), 'export const A = 42;');
+
+    // 3. Wait for re-generation
+    await waitForFileContent(outputPath, 'A = 42');
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('◇ (1.1) A = 42');
+  });
+
+  it('--watch: should re-generate when a new file matching the glob is added', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+    
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'a.ts');
+    
+    // 2. Add a new file
+    await writeFile(join(project.projectDir, 'b.ts'), 'export const B = 2;');
+
+    // 3. Wait for re-generation to include the new file
+    await waitForFileContent(outputPath, 'b.ts');
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('§ (1) a.ts');
+    expect(updatedContent).toContain('§ (2) b.ts');
+  });
+
+  it('--watch: should re-generate when a tracked file is deleted', async () => {
+    project = await setupTestProject({
+      'a.ts': 'export const A = 1;',
+      'b.ts': 'export const B = 2;',
+    });
+    const outputPath = join(project.projectDir, 'output.scn');
+    const fileToDelete = join(project.projectDir, 'b.ts');
+
+    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+      cwd: project.projectDir,
+    });
+
+    // 1. Wait for initial generation
+    await waitForFileContent(outputPath, 'b.ts');
+    const initialContent = await readFile(outputPath, 'utf-8');
+    expect(initialContent).toContain('b.ts');
+
+    // 2. Delete the file
+    await rm(fileToDelete);
+
+    // 3. Wait for re-generation (b.ts should be gone)
+    const start = Date.now();
+    let contentHasB = true;
+    while(contentHasB && Date.now() - start < 5000) {
+        const content = await readFile(outputPath, 'utf-8');
+        if (!content.includes('b.ts')) {
+            contentHasB = false;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    expect(contentHasB).toBe(false);
+    const updatedContent = await readFile(outputPath, 'utf-8');
+    expect(updatedContent).toContain('a.ts');
+    expect(updatedContent).not.toContain('b.ts');
+  });
+
+  it('should handle file paths with spaces correctly', async () => {
+     project = await setupTestProject({
+      'my component.ts': 'export const MyComponent = 1;',
+    });
+    const outputPath = join(project.projectDir, 'output with spaces.scn');
+    
+    const proc = Bun.spawn(
+      ['bun', 'run', CLI_PATH, 'my component.ts', '-o', 'output with spaces.scn'],
+      { cwd: project.projectDir }
+    );
+    await proc.exited;
+
+    expect(proc.exitCode).toBe(0);
+    const outputContent = await readFile(outputPath, 'utf-8');
+    expect(outputContent).toContain('§ (1) "my component.ts"');
+  });
+});
+```
+
+## File: test/ts/integration/css-parsing.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.7 CSS Parsing & Integration', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should generate a ¶ CSS Rule for each selector and include intent symbols', async () => {
+    project = await setupTestProject({
+      'styles.css': `
+        .layout-only {
+          display: flex;
+          position: absolute;
+        }
+        .text-only {
+          font-weight: bold;
+          text-align: center;
+        }
+        .appearance-only {
+          background-color: blue;
+          border: 1px solid red;
+        }
+        .all-intents {
+          padding: 8px; /* layout */
+          font-size: 16px; /* text */
+          color: white; /* appearance */
+        }
+      `,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.css'] });
+    
+    // The order of intent symbols is sorted alphabetically by the serializer.
+    expect(scn).toContain('  ¶ (1.1) .layout-only { 📐 }');
+    expect(scn).toContain('  ¶ (1.2) .text-only { ✍ }');
+    expect(scn).toContain('  ¶ (1.3) .appearance-only { 💧 }');
+    expect(scn).toContain('  ¶ (1.4) .all-intents { 💧 📐 ✍ }');
+  });
+
+  it('should create links between a JSX element and CSS rules via className', async () => {
+    project = await setupTestProject({
+      'Button.css': `
+        .btn { color: white; }
+        .btn-primary { background-color: blue; }
+      `,
+      'Button.tsx': `
+        import './Button.css';
+        export function Button() {
+          return <button className="btn btn-primary">Click</button>;
+        }
+      `,
+      // tsconfig needed for repograph to process jsx/css imports
+      'tsconfig.json': JSON.stringify({
+        "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
+        "include": ["**/*.ts", "**/*.tsx"]
+      }),
+    });
+    
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+
+    // File sorting is alphabetical: Button.css -> 1, Button.tsx -> 2
+    const tsxScn = scn.split('\n\n').find(s => s.includes('Button.tsx'));
+    const cssScn = scn.split('\n\n').find(s => s.includes('Button.css'));
+
+    expect(cssScn).toBeDefined();
+    expect(tsxScn).toBeDefined();
+
+    // Check file-level links (import relationship)
+    expect(tsxScn!).toContain('§ (2) Button.tsx\n  -> (1.0)');
+    expect(cssScn!).toContain('§ (1) Button.css\n  <- (2.0)');
+
+    // Check entity-level links
+    // ⛶ button (2.2) should link to both .btn (1.1) and .btn-primary (1.2)
+    expect(tsxScn!).toContain('    ⛶ (2.2) button [ class:.btn .btn-primary ]\n      -> (1.1), (1.2)');
+    
+    // ¶ .btn (1.1) should link back to ⛶ button (2.2)
+    expect(cssScn!).toContain('  ¶ (1.1) .btn { 💧 }\n    <- (2.2)');
+    
+    // ¶ .btn-primary (1.2) should link back to ⛶ button (2.2)
+    expect(cssScn!).toContain('  ¶ (1.2) .btn-primary { 💧 }\n    <- (2.2)');
+  });
+
+  it('should create links between a JSX element and a CSS rule via id', async () => {
+    project = await setupTestProject({
+      'App.css': `
+        #main-container { border: 1px solid black; }
+      `,
+      'App.tsx': `
+        import './App.css';
+        export function App() {
+          return <div id="main-container">...</div>;
+        }
+      `,
+      'tsconfig.json': JSON.stringify({
+        "compilerOptions": { "jsx": "react-jsx", "allowJs": true },
+        "include": ["**/*.ts", "**/*.tsx"]
+      }),
+    });
+    
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.{ts,tsx,css}'], project: 'tsconfig.json' });
+    
+    // File sorting is alphabetical: App.css -> 1, App.tsx -> 2
+    const tsxScn = scn.split('\n\n').find(s => s.includes('App.tsx'));
+    const cssScn = scn.split('\n\n').find(s => s.includes('App.css'));
+
+    expect(cssScn).toBeDefined();
+    expect(tsxScn).toBeDefined();
+
+    // Check entity-level links
+    // ⛶ div (2.2) should link to #main-container (1.1)
+    expect(tsxScn!).toContain('    ⛶ (2.2) div [ id:#main-container ]\n      -> (1.1)');
+    // ¶ #main-container (1.1) should link back to ⛶ div (2.2)
+    expect(cssScn!).toContain('  ¶ (1.1) #main-container { 💧 }\n    <- (2.2)');
+  });
+});
+```
+
+## File: test/ts/integration/dependency-graph.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should resolve and add <- annotations to entities that are used by other entities', async () => {
+    project = await setupTestProject({
+      'util.ts': `export function helper() {}`,
+      'main.ts': `import { helper } from './util'; function main() { helper(); }`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    const utilScn = scn.split('\n\n').find(s => s.includes('util.ts'));
+    expect(utilScn).toBeDefined();
+    // main.ts is file 1, util.ts is file 2.
+    // main.ts's 'main' (1.1) calls util.ts's 'helper' (2.1)
+    expect(utilScn).toContain('§ (2) util.ts\n  <- (1.0)');
+    expect(utilScn).toContain('  + ~ (2.1) helper()\n    <- (1.1)');
+  });
+
+  it('should add a summary of file-level dependencies and callers on the § file declaration line', async () => {
+    project = await setupTestProject({
+      'config.ts': `export const setting = 1;`,
+      'service.ts': `import { setting } from './config'; export const value = setting;`,
+      'main.ts': `import { value } from './service'; console.log(value);`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    // Files are sorted alphabetically: config.ts (1), main.ts (2), service.ts (3)
+    // main.ts imports service.ts. service.ts imports config.ts
+    expect(scn).toContain('§ (1) config.ts\n  <- (3.0)');
+    expect(scn).toContain('§ (2) main.ts\n  -> (3.0)');
+    expect(scn).toContain('§ (3) service.ts\n  -> (1.0)\n  <- (2.0)');
+  });
+
+  it('should correctly represent a multi-step dependency chain (A -> B -> C)', async () => {
+    project = await setupTestProject({
+      'c.ts': `export const C = 'c';`,
+      'b.ts': `import { C } from './c'; export const B = C;`,
+      'a.ts': `import { B } from './b'; function run() { console.log(B); }`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    // File-level links. a.ts (1), b.ts (2), c.ts (3)
+    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+    expect(scn).toContain('§ (2) b.ts\n  -> (3.0)\n  <- (1.0)');
+    expect(scn).toContain('§ (3) c.ts\n  <- (2.0)');
+
+    // Entity-level links
+    const aScn = scn.split('\n\n').find(s => s.includes('a.ts'));
+    const bScn = scn.split('\n\n').find(s => s.includes('b.ts'));
+    const cScn = scn.split('\n\n').find(s => s.includes('c.ts'));
+
+    expect(aScn).toContain('  ~ (1.1) run()\n    -> (2.1)'); // run() in a.ts uses B from b.ts
+    expect(bScn).toContain('  + ◇ (2.1) B = C\n    -> (3.1)\n    <- (1.1)'); // B in b.ts uses C from c.ts and is used by run() from a.ts
+    expect(cScn).toContain('  + ◇ (3.1) C = \'c\'\n    <- (2.1)'); // C is used by B
+  });
+  
+  it('should link a dependency from the function that uses it, not just the file', async () => {
+    project = await setupTestProject({
+      'util.ts': `export function log() {}`,
+      'main.ts': `
+        import { log } from './util';
+        function run() {
+          log();
+        }
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+    expect(mainScn).toBeDefined();
+    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+    expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1)');
+  });
+
+  it('should support linking to multiple entities on one line', async () => {
+     project = await setupTestProject({
+      'util.ts': `
+        export function helperA() {}
+        export function helperB() {}
+      `,
+      'main.ts': `
+        import { helperA, helperB } from './util';
+        export function run() {
+          helperA();
+          helperB();
+        }
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+    expect(mainScn).toBeDefined();
+    // main.ts is file 1, util.ts is file 2.
+    // run is 1.1, helperA is 2.1, helperB is 2.2
+    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+    expect(mainScn).toContain('  + ~ (1.1) run()\n    -> (2.1), (2.2)');
+  });
+});
+```
+
+## File: test/ts/integration/programmatic-api.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import {
+  generateScn,
+  serializeGraph,
+  type RankedCodeGraph,
+  type CodeNode,
+  type CodeEdge as RepographEdge,
+} from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+import { rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+// Re-define the extended edge type used internally by the serializer
+type CodeEdge = Omit<RepographEdge, 'type'> & { type: RepographEdge['type'] | 'contains' | 'references' };
+
+describe('SCN Generation: 2. Programmatic API', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+  
+  describe('2.1 High-Level API (generateScn)', () => {
+    it('should generate a valid SCN string given a set of include globs', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+        'b.ts': `export const B = 2;`,
+      });
+
+      const scn = await generateScn({ root: project.projectDir, include: ['a.ts'] });
+      expect(scn).toContain('§ (1) a.ts');
+      expect(scn).not.toContain('b.ts');
+    });
+
+    it('should respect exclude patterns', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+        'b.ignore.ts': `export const B = 2;`,
+      });
+
+      const scn = await generateScn({
+        root: project.projectDir,
+        include: ['**/*.ts'],
+        exclude: ['**/*.ignore.ts'],
+      });
+      expect(scn).toContain('§ (1) a.ts');
+      expect(scn).not.toContain('b.ignore.ts');
+    });
+
+    it('should use the project tsconfig path for better type analysis', async () => {
+      project = await setupTestProject({
+        'Button.tsx': `export const Button = () => <button>Click</button>;`,
+        'tsconfig.json': JSON.stringify({
+            "compilerOptions": { "jsx": "react-jsx" },
+        }),
+      });
+
+      const scn = await generateScn({
+        root: project.projectDir,
+        include: ['**/*.tsx'],
+        project: 'tsconfig.json',
+      });
+      
+      // Correct parsing of JSX depends on tsconfig.json
+      expect(scn).toContain('§ (1) Button.tsx');
+      expect(scn).toContain('+ ◇ (1.2) Button');
+      expect(scn).toContain('⛶ (1.3) button');
+    });
+
+    it('should return an empty string for globs that match no files', async () => {
+      project = await setupTestProject({
+        'a.ts': `export const A = 1;`,
+      });
+      const scn = await generateScn({ root: project.projectDir, include: ['**/*.js'] });
+      expect(scn).toBe('');
+    });
+
+    it('should throw an error for non-existent root directory', async () => {
+        const nonExistentDir = join(tmpdir(), 'scn-ts-non-existent-dir-test');
+        await rm(nonExistentDir, { recursive: true, force: true }).catch(() => {});
+        
+        const promise = generateScn({ root: nonExistentDir, include: ['**/*.ts'] });
+        
+        // repograph is expected to throw when the root path does not exist.
+        await expect(promise).rejects.toThrow();
+    });
+  });
+
+  describe('2.2 Low-Level API (serializeGraph)', () => {
+    it('should serialize a resolved graph into spec-compliant SCN string', () => {
+        const fileNodeA: CodeNode = { id: 'file-a', filePath: 'a.ts', type: 'file', name: 'a.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+        const funcNodeA: CodeNode = { id: 'func-a', filePath: 'a.ts', type: 'function', name: 'funcA', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcA()', };
+        const fileNodeB: CodeNode = { id: 'file-b', filePath: 'b.ts', type: 'file', name: 'b.ts', startLine: 1, endLine: 1, codeSnippet: '', };
+        const funcNodeB: CodeNode = { id: 'func-b', filePath: 'b.ts', type: 'function', name: 'funcB', visibility: 'public', startLine: 2, endLine: 2, codeSnippet: 'function funcB()', };
+
+        const nodes = new Map<string, CodeNode>([
+            [fileNodeA.id, fileNodeA],
+            [funcNodeA.id, funcNodeA],
+            [fileNodeB.id, fileNodeB],
+            [funcNodeB.id, funcNodeB],
+        ]);
+        
+        const edges: CodeEdge[] = [
+            // File A imports File B
+            { fromId: 'file-a', toId: 'file-b', type: 'imports' },
+            // funcA calls funcB
+            { fromId: 'func-a', toId: 'func-b', type: 'references' },
+        ];
+
+        const ranks = new Map<string, number>([
+            [fileNodeA.id, 0],
+            [funcNodeA.id, 0],
+            [fileNodeB.id, 0],
+            [funcNodeB.id, 0],
+        ]);
+        const graph: RankedCodeGraph = { nodes, edges: edges as any, ranks };
+
+        const scnOutput = serializeGraph(graph);
+        
+        const expectedScn = [
+            '§ (1) a.ts\n  -> (2.0)\n  + ~ (1.1) funcA()\n    -> (2.1)',
+            '§ (2) b.ts\n  <- (1.0)\n  + ~ (2.1) funcB()\n    <- (1.1)'
+        ].join('\n\n');
+        
+        expect(scnOutput).toBe(expectedScn);
+    });
+  });
+});
+```
+
+## File: test/ts/unit/code-entities.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.3 Code Entities', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should represent a class with ◇', async () => {
+    project = await setupTestProject({ 'test.ts': `export class MyClass {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
+  });
+
+  it('should represent a namespace with ◇', async () => {
+    project = await setupTestProject({ 'test.ts': `export namespace MyNamespace {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ◇ (1.1) MyNamespace');
+  });
+
+  it('should represent an exported uppercase object literal (module pattern) with ◇', async () => {
+    project = await setupTestProject({ 'test.ts': `export const MyModule = { key: 'value' };` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain(`  + ◇ (1.1) MyModule { key: 'value' }`);
+  });
+
+  it('should represent an interface with {}', async () => {
+    project = await setupTestProject({ 'test.ts': `export interface MyInterface {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + {} (1.1) MyInterface');
+  });
+
+  it('should represent an export function with + ~', async () => {
+    project = await setupTestProject({ 'test.ts': `export function myFunc() {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
+  });
+
+  it('should represent a const arrow function with ~', async () => {
+    project = await setupTestProject({ 'test.ts': `const myFunc = () => {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  ~ (1.1) myFunc()');
+  });
+
+  it('should represent a class method with ~ and a property with @', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+      export class MyClass {
+        myProp: string = '';
+        myMethod() {}
+      }`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('    + @ (1.2) myProp');
+    expect(scn).toContain('    + ~ (1.3) myMethod()');
+  });
+
+  it('should represent a top-level const with @', async () => {
+    project = await setupTestProject({ 'test.ts': `const myVar = 123;` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    // Note: repograph represents this as a "variable" and heuristic makes it not a container
+    expect(scn).toContain('  @ (1.1) myVar = 123');
+  });
+
+  it('should correctly handle export default class', async () => {
+    project = await setupTestProject({ 'test.ts': `export default class MyClass {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ◇ (1.1) MyClass');
+  });
+
+  it('should correctly handle export default function', async () => {
+    project = await setupTestProject({ 'test.ts': `export default function myFunc() {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ~ (1.1) myFunc()');
+  });
+
+  it('should correctly handle export default anonymous function', async () => {
+    project = await setupTestProject({ 'test.ts': `export default () => {}` });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+    expect(scn).toContain('  + ~ (1.1) default()'); // repograph names it 'default'
+  });
+});
+```
+
+## File: test/ts/unit/general-structural.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.1 General & Structural', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should generate a § file declaration with a unique ID and correct relative path', async () => {
+    project = await setupTestProject({
+      'a.ts': ``,
+      'b.ts': ``,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('§ (1) a.ts');
+    expect(scn).toContain('§ (2) b.ts');
+  });
+
+  it('should assign unique, incrementing entity IDs within a file, starting from 1', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+        export function funcA() {}
+        export class ClassB {}
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('+ ~ (1.1) funcA()');
+    expect(scn).toContain('+ ◇ (1.2) ClassB');
+  });
+
+  it('should represent a side-effect import with a .0 entity ID', async () => {
+    project = await setupTestProject({
+      'a.ts': `import './b.ts';`,
+      'b.ts': `console.log('side effect');`,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    expect(scn).toContain('§ (1) a.ts\n  -> (2.0)');
+    expect(scn).toContain('§ (2) b.ts\n  <- (1.0)');
+  });
+
+  it('should represent hierarchical code structures with correct indentation', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+        export namespace MyNamespace {
+          export class MyClass {
+            public myMethod() {}
+          }
+        }
+      `,
+    });
+    const scn = await generateScn({
+      root: project.projectDir,
+      include: [`**/*.ts`],
+    });
+
+    const expected = [
+      '  + ◇ (1.1) MyNamespace',
+      '    + ◇ (1.2) MyClass',
+      '      + ~ (1.3) myMethod()'
+    ].join('\n');
+    expect(scn).toContain(expected);
+  });
+});
+```
+
+## File: test/ts/unit/jsx.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.6 JS/TS Specifics (JSX & Modules)', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should correctly parse a React functional component with props with ◇', async () => {
+    project = await setupTestProject({
+      'Button.tsx': `
+        export function Button({ label, onClick }: { label: string, onClick: () => void }) {
+          return <button>{label}</button>
+        }
+      `,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    expect(scn).toContain('+ ◇ (1.1) Button { props: { label:#, onClick:# } }');
+  });
+  
+  it('should represent a JSX element with ⛶ and its attributes', async () => {
+    project = await setupTestProject({
+      'Component.tsx': `
+        export function Component() {
+          return <div id="main" className="container fluid">Hello</div>;
+        }
+      `,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    const divLine = scn.split('\n').find(line => line.includes('⛶ (1.2) div'));
+    expect(divLine).toBeDefined();
+    expect(divLine!).toContain('id:#main');
+    expect(divLine!).toContain('class:.container .fluid');
+  });
+
+  it('should represent JSX hierarchy with indentation', async () => {
+    project = await setupTestProject({
+      'App.tsx': `
+        export function App() {
+          return (
+            <main>
+              <h1>Title</h1>
+            </main>
+          );
+        }
+      `,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.tsx'], project: 'tsconfig.json' });
+    const lines = scn.split('\n');
+    const mainIndex = lines.findIndex(l => l.includes('⛶ (1.2) main'));
+    const h1Index = lines.findIndex(l => l.includes('⛶ (1.3) h1'));
+
+    expect(mainIndex).toBeGreaterThan(-1);
+    expect(h1Index).toBeGreaterThan(-1);
+    expect(h1Index).toBe(mainIndex + 1);
+    
+    const mainIndentation = lines[mainIndex]!.match(/^\s*/)?.[0].length ?? 0;
+    const h1Indentation = lines[h1Index]!.match(/^\s*/)?.[0].length ?? 0;
+    
+    expect(h1Indentation).toBeGreaterThan(mainIndentation);
+  });
+
+  it('should correctly parse various export syntaxes, including re-exports and aliases', async () => {
+    project = await setupTestProject({
+      'mod.ts': `
+        const internal = 1;
+        function b() {}
+        export { internal as exported, b };
+        export * from './another';
+      `,
+      'another.ts': 'export const c = 3;',
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const modScn = scn.split('\n\n').find(s => s.includes('mod.ts'));
+    // Files: another.ts (1), mod.ts (2)
+    expect(modScn).toContain('§ (2) mod.ts\n  -> (1.0)');
+    expect(modScn).toContain('@ (2.1) internal = 1');
+    expect(modScn).toContain('~ (2.2) b()');
+    // Note: The alias `exported` is not represented as a separate SCN entity.
+    // The link is to the original `internal` variable.
+  });
+
+  it('should correctly parse various import syntaxes and link them from the consuming function', async () => {
+    project = await setupTestProject({
+      'util.ts': `
+        export const val = 1;
+        export function func() {}
+        export default class MyClass {}
+      `,
+      'main.ts': `
+        import MyClass, { val } from './util';
+        import * as utils from './util';
+        
+        function run() {
+            const x = val;
+            utils.func();
+            new MyClass();
+        }
+      `
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    const mainScn = scn.split('\n\n').find(s => s.includes('main.ts'));
+    // Files: main.ts (1), util.ts (2)
+    // Entities in util.ts: val (2.1), func (2.2), MyClass (2.3)
+    // Entity in main.ts: run (1.1)
+    expect(mainScn).toContain('§ (1) main.ts\n  -> (2.0)');
+    expect(mainScn).toContain('  ~ (1.1) run()\n    -> (2.1), (2.2), (2.3)');
+  });
+});
+```
+
+## File: test/ts/unit/qualifiers.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.5 Function & Method Qualifiers', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should prefix public members with +', async () => {
+    project = await setupTestProject({
+      'test.ts': `export class MyClass { public myMethod() {} }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.2) myMethod()');
+  });
+
+  it('should prefix private members with -', async () => {
+    project = await setupTestProject({
+      'test.ts': `export class MyClass { private myMethod() {} }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('- ~ (1.2) myMethod()');
+  });
+
+  it('should treat default class members as public and prefix with +', async () => {
+    project = await setupTestProject({
+      'test.ts': `export class MyClass { myMethod() {} }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.2) myMethod()');
+  });
+
+  it('should append ... to an async function or method', async () => {
+    project = await setupTestProject({
+      'test.ts': `
+        export async function myFunc() {}
+        export class MyClass { async myMethod() {} }
+      `,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.1) myFunc() ...');
+    expect(scn).toContain('+ ~ (1.3) myMethod() ...');
+  });
+
+  it('should append ! to a function that has a throw statement', async () => {
+    project = await setupTestProject({
+      'test.ts': `export function myFunc() { throw new Error('test'); }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.1) myFunc() !');
+  });
+
+  it('should correctly handle functions that are both async and can throw', async () => {
+    project = await setupTestProject({
+      'test.ts': `export async function myFunc() { throw new Error('test'); }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.1) myFunc() ... !');
+  });
+  
+  it('should append o to a pure function (repograph heuristic)', async () => {
+    // This test relies on repograph's isPure heuristic.
+    // A simple function with no side effects is a good candidate.
+     project = await setupTestProject({
+      'test.ts': `export function add(a: number, b: number): number { return a + b; }`,
+    });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ~ (1.1) add(a: #, b: #): #number o');
+  });
+});
+```
+
+## File: test/ts/unit/type-system.test.ts
+```typescript
+import { describe, it, expect, afterEach } from 'bun:test';
+import { generateScn } from '../../../src/index';
+import { setupTestProject, type TestProject } from '../../test.util';
+
+describe('SCN Generation: 1.4 Type System Symbols', () => {
+  let project: TestProject | undefined;
+
+  afterEach(async () => {
+    if (project) {
+      await project.cleanup();
+      project = undefined;
+    }
+  });
+
+  it('should represent an enum with ☰', async () => {
+    project = await setupTestProject({ 'test.ts': `export enum Color { Red, Green }` });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ ☰ (1.1) Color');
+  });
+
+  it('should represent a type alias with =:', async () => {
+    project = await setupTestProject({ 'test.ts': `export type UserID = string;` });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('+ =: (1.1) UserID = string');
+  });
+
+  it('should represent type references in function parameters with #', async () => {
+    project = await setupTestProject({ 'test.ts': `function process(id: string, value: number) {}` });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('~ (1.1) process(id: #, value: #)');
+  });
+  
+  it('should represent a function return type with :#Type', async () => {
+    project = await setupTestProject({ 'test.ts': `function isActive(): boolean {}` });
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('~ (1.1) isActive(): #boolean');
+  });
+  
+  it('should correctly represent complex types like Promise<User>', async () => {
+    project = await setupTestProject({ 'test.ts': `
+      interface User {}
+      function getUser(): Promise<User> { return Promise.resolve({} as User); }
+    `});
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('~ (1.2) getUser(): #Promise<User>');
+  });
+
+  it('should correctly represent generic type parameters and return types', async () => {
+    project = await setupTestProject({ 'test.ts': `
+      function transform<T, U>(data: T[], func: (item: T) => U): U[] { return []; }
+    `});
+    const scn = await generateScn({ root: project.projectDir, include: ['**/*.ts'] });
+    expect(scn).toContain('~ (1.1) transform(data: #, func: #): #U[]');
+  });
+});
+```
+
+## File: test/test.util.ts
+```typescript
+import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join, dirname } from 'path';
+
+export interface TestProject {
+  projectDir: string;
+  cleanup: () => Promise<void>;
+}
+
+export async function setupTestProject(files: Record<string, string>): Promise<TestProject> {
+  const projectDir = await mkdtemp(join(tmpdir(), 'scn-test-'));
+
+  for (const [relativePath, content] of Object.entries(files)) {
+    const absolutePath = join(projectDir, relativePath);
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, content, 'utf-8');
+  }
+
+  const cleanup = async () => {
+    await rm(projectDir, { recursive: true, force: true });
+  };
+
+  return { projectDir, cleanup };
+}
+```
+
 ## File: package.json
 ```json
 {
@@ -2320,7 +2266,7 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "repograph": "^0.1.19"
+    "repograph": "0.1.46"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -2347,10 +2293,10 @@ export const serializeGraph = (graph: RankedCodeGraph, rootDir?: string): string
     "allowJs": true,
 
     // Path mapping for local development
-    "baseUrl": ".",
-    "paths": {
-      "repograph": ["repograph/src/index.ts"]
-    },
+    // "baseUrl": ".",
+    // "paths": {
+    //   "repograph": ["../../src/index.ts"]
+    // },
 
     // Bundler mode
     "moduleResolution": "bundler",

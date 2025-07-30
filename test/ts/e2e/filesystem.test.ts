@@ -3,8 +3,7 @@ import { setupTestProject, type TestProject } from '../../test.util';
 import { readFile, writeFile, rm } from 'fs/promises';
 import { join, resolve } from 'path';
 
-// Path to the CLI script in the main workspace
-const CLI_PATH = resolve(process.cwd(), 'src/cli.ts');
+const CLI_PATH = resolve(process.cwd(), 'dist/cli.js');
 
 // Helper to wait for a file to contain specific content
 async function waitForFileContent(filePath: string, expectedContent: string, timeout = 5000): Promise<void> {
@@ -44,7 +43,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
 
@@ -69,7 +68,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     });
     const outputPath = join(project.projectDir, 'output.scn');
 
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
     
@@ -94,7 +93,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     const outputPath = join(project.projectDir, 'output.scn');
     const fileToDelete = join(project.projectDir, 'b.ts');
 
-    watcherProc = Bun.spawn(['bun', 'run', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
+    watcherProc = Bun.spawn(['bun', CLI_PATH, '--watch', '-o', outputPath, '**/*.ts'], {
       cwd: project.projectDir,
     });
 
@@ -130,7 +129,7 @@ describe('SCN Generation: 5. File System & Watch Mode', () => {
     const outputPath = join(project.projectDir, 'output with spaces.scn');
     
     const proc = Bun.spawn(
-      ['bun', 'run', CLI_PATH, 'my component.ts', '-o', 'output with spaces.scn'],
+      ['bun', CLI_PATH, 'my component.ts', '-o', 'output with spaces.scn'],
       { cwd: project.projectDir }
     );
     await proc.exited;

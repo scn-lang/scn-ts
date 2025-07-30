@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { generateScn } from '../../../src/index';
+import { generateScn } from '../../../dist/index.js';
 import { setupTestProject, type TestProject } from '../../test.util';
 
 describe('SCN Generation: 1.2 Inter-File Dependency Graphs', () => {

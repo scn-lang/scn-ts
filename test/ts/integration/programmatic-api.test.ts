@@ -5,7 +5,7 @@ import {
   type RankedCodeGraph,
   type CodeNode,
   type CodeEdge as RepographEdge,
-} from '../../../src/index';
+} from '../../../dist/index.js';
 import { setupTestProject, type TestProject } from '../../test.util';
 import { rm } from 'fs/promises';
 import { tmpdir } from 'os';
