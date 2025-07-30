@@ -11,7 +11,7 @@
     // Path mapping for local development
     "baseUrl": ".",
     "paths": {
-      "repograph": ["repograph/src/index.ts"]
+      "repograph": ["../../src/index.ts"]
     },
 
     // Bundler mode

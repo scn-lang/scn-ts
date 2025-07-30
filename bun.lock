@@ -4,7 +4,7 @@
     "": {
       "name": "scn-ts",
       "dependencies": {
-        "repograph": "^0.1.19",
+        "repograph": "0.1.44",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -148,8 +148,6 @@
 
     "any-promise": ["any-promise@1.3.0", "", {}, "sha512-7UvmKalWRt1wgjL1RrGxoSJW/0QZFIegpeGvZG9kjp8vrRu55XTHbwnqq2GpXm9uLbcuhxm3IqX9OB4MZR1b2A=="],
 
-    "argparse": ["argparse@2.0.1", "", {}, "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q=="],
-
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
     "brace-expansion": ["brace-expansion@2.0.2", "", { "dependencies": { "balanced-match": "^1.0.0" } }, "sha512-Jt0vHyM+jmUBqojB7E1NIYadt0vI0Qxjxd2TErW94wDz+E2LAm5vKMXXwg6ZZBTHPuUlDgQHKXvjGBdfcF1ZDQ=="],
@@ -232,8 +230,6 @@
 
     "joycon": ["joycon@3.1.1", "", {}, "sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw=="],
 
-    "js-yaml": ["js-yaml@4.1.0", "", { "dependencies": { "argparse": "^2.0.1" }, "bin": { "js-yaml": "bin/js-yaml.js" } }, "sha512-wpxZs9NoxZaJESJGIZTyDEaYpl0FKSA+FB9aJiyemKhMwkxQg63h4T1KJgUGHpTqPDNRcmmYLugrRjJlBtWvRA=="],
-
     "lilconfig": ["lilconfig@3.1.3", "", {}, "sha512-/vlFKAoH5Cgt3Ie+JLhRbwOsCQePABiU3tJ1egGvyQ+33R/vcwM2Zl2QR/LzjsBeItPt3oSVXapn+m4nQDvpzw=="],
 
     "lines-and-columns": ["lines-and-columns@1.2.4", "", {}, "sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg=="],
@@ -296,7 +292,9 @@
 
     "readdirp": ["readdirp@4.1.2", "", {}, "sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg=="],
 
-    "repograph": ["repograph@0.1.19", "", { "dependencies": { "@types/js-yaml": "^4.0.9", "globby": "^14.1.0", "graphology": "^0.26.0", "graphology-pagerank": "^1.1.0", "js-yaml": "^4.1.0", "tinypool": "^0.8.2", "tree-sitter-c": "^0.24.1", "tree-sitter-c-sharp": "^0.23.1", "tree-sitter-cpp": "^0.23.4", "tree-sitter-css": "^0.23.2", "tree-sitter-go": "^0.23.4", "tree-sitter-java": "^0.23.5", "tree-sitter-php": "^0.23.12", "tree-sitter-python": "^0.23.6", "tree-sitter-ruby": "^0.23.1", "tree-sitter-rust": "^0.24.0", "tree-sitter-solidity": "^1.2.11", "tree-sitter-swift": "^0.7.1", "tree-sitter-typescript": "^0.23.2", "tree-sitter-vue": "^0.2.1", "web-tree-sitter": "^0.25.6" }, "bin": { "repograph": "dist/index.js" } }, "sha512-b7NqkRmONbFC9Pg0m8YrNnm7d8drfeGq02RIAOM5LWfzZ5R1csKnjSMByUT2be8oHL90g8JkmXF5ndECssEi+w=="],
+    "repograph": ["repograph@0.1.44", "", { "dependencies": { "@types/js-yaml": "^4.0.9", "globby": "^14.1.0", "repograph-core": "0.1.19", "tinypool": "^0.8.2", "tree-sitter-c": "^0.24.1", "tree-sitter-c-sharp": "^0.23.1", "tree-sitter-cpp": "^0.23.4", "tree-sitter-css": "^0.23.2", "tree-sitter-go": "^0.23.4", "tree-sitter-java": "^0.23.5", "tree-sitter-php": "^0.23.12", "tree-sitter-python": "^0.23.6", "tree-sitter-ruby": "^0.23.1", "tree-sitter-rust": "^0.24.0", "tree-sitter-solidity": "^1.2.11", "tree-sitter-swift": "^0.7.1", "tree-sitter-typescript": "^0.23.2", "tree-sitter-vue": "^0.2.1", "web-tree-sitter": "^0.25.6" }, "bin": { "repograph": "dist/index.js" } }, "sha512-sVYxWtTLTSmQaf7WAigukwI5ylJ8l/K9aTKrsqjhYp5sI+YMjSgXRR9Zg54y1YaNCqtRGgEvYFCyzjICPUpTxw=="],
+
+    "repograph-core": ["repograph-core@0.1.19", "", { "dependencies": { "graphology": "^0.26.0", "graphology-pagerank": "^1.1.0", "web-tree-sitter": "^0.25.6" } }, "sha512-uqsWYAZCKgyAe4IpmaFwsc3hNPgGKGp2NE3wspy4JtFMo86/08ByIKOzIEaQsGPw3alokOz1cAp9DTDG8hHO1A=="],
 
     "resolve-from": ["resolve-from@5.0.0", "", {}, "sha512-qYg9KP24dD5qka9J47d0aVky0N+b4fTU89LN9iDnjB5waksiC49rvMB0PrUJQGoTmH50XPiqOvAjDfaijGxYZw=="],
 
