@@ -101,6 +101,4 @@ export type {
   // Logger types
   Logger,
   LogLevel,
-  // Parser types
-  ParserInitializationOptions,
 } from 'repograph';
